@@ -42,10 +42,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Idle",
     headline: "Record speech and keep the transcript close at hand.",
     detail:
-      "This is a local-only mock. Use the phase controls to preview how the recording workspace will react before any real native capture exists.",
+      "Release 0.5 keeps the flow obviously fake while the desktop app calls a narrow Rust command to simulate transcription.",
     transcriptTitle: "No transcript yet.",
     transcriptPreview:
-      "Captured text, copy actions, and provider metadata will appear here after the native pipeline exists.",
+      "Run the mock transcription flow to fetch a fake transcript from Rust and preview how saved history will behave.",
     inputLabel: "Default microphone (planned)",
     durationLabel: "00:00"
   },
@@ -64,24 +64,24 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
   transcribing: {
     phase: "transcribing",
     phaseLabel: "Transcribing",
-    headline: "Mock processing has started.",
+    headline: "Mock transcription is running.",
     detail:
-      "The app is pretending to hand recorded audio to Gemini, but no request, provider execution, or native work happens in this release.",
+      "The frontend is waiting on the explicit Rust mock transcription command. No real audio capture or provider integration happens in this release.",
     transcriptTitle: "Draft transcript incoming…",
     transcriptPreview:
-      "Frontend-only loading state. A later release will replace this with a real transcription pipeline and provider results.",
+      "This is still fake on purpose, but the result now comes back through the native mock transcription service.",
     inputLabel: "Desk USB microphone (mock)",
     durationLabel: "00:18"
   },
   completed: {
     phase: "completed",
     phaseLabel: "Completed",
-    headline: "Mock transcript ready for review.",
+    headline: "Mock transcript ready.",
     detail:
-      "This sample output is hard-coded in the frontend so the shell can demonstrate the completed layout without saving, copying, or sending anything.",
-    transcriptTitle: "Fake transcript preview",
+      "The mock result finished through Rust. The UI can now show a completed state and reflect whether local history saving was allowed.",
+    transcriptTitle: "Mock transcript preview",
     transcriptPreview:
-      "Standup notes: finalize the shell, keep Gemini as the only provider, and leave recording plus persistence for later releases.",
+      "A fake transcript result will appear here after the mock command completes.",
     inputLabel: "Desk USB microphone (mock)",
     durationLabel: "00:18"
   },
@@ -103,11 +103,23 @@ const mockPhaseOrder: RecordingPhase[] = ["idle", "recording", "transcribing", "
 
 const initialAppStatus = appStatusByPhase.idle;
 
+export function getAppStatusForPhase(
+  phase: RecordingPhase,
+  overrides: Partial<Omit<AppStatus, "phase">> = {}
+): AppStatus {
+  return {
+    ...appStatusByPhase[phase],
+    ...overrides,
+    phase
+  };
+}
+
 function createAppStatusStore() {
   const { subscribe, set, update } = writable(initialAppStatus);
 
   return {
     subscribe,
+    setStatus: (status: AppStatus) => set(status),
     setPhase: (phase: RecordingPhase) => set(appStatusByPhase[phase]),
     advance: () =>
       update((status) => {

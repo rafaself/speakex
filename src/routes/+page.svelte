@@ -8,14 +8,18 @@
     getHistory,
     type HistoryTranscriptionSummary
   } from "$lib/native/history";
+  import {
+    runMockTranscription,
+    type RunMockTranscriptionResult
+  } from "$lib/native/transcription";
   import { loadAppSettings, saveAppSettings } from "$lib/native/settings";
   import { ping } from "$lib/native/ping";
   import {
     activeSection,
     appStatus,
+    getAppStatusForPhase,
     languageOptions,
     microphoneOptions,
-    mockRecordingPhases,
     navigationSections,
     providerOptions,
     providerSelection,
@@ -24,7 +28,7 @@
     type DraftToggleKey
   } from "$lib/stores/app-shell";
   import type { ProviderId } from "$lib/settings/schema";
-  import type { RecordingPhase, SettingsDraft } from "$lib/types/app-shell";
+  import type { SettingsDraft } from "$lib/types/app-shell";
 
   type PingState = "idle" | "loading" | "success" | "error";
   type SettingsState = "idle" | "loading" | "saving" | "error";
@@ -61,16 +65,16 @@
   let historyError = "";
   let historyBusyEntryId: string | null = null;
   let isClearingHistory = false;
+  let isRunningMockTranscription = false;
 
   $: selectedProviderLabel = providerLabels.get($providerSelection) ?? "Unknown provider";
-  $: primaryMockActionLabel =
-    $appStatus.phase === "idle"
-      ? "Show recording"
-      : $appStatus.phase === "recording"
-        ? "Show transcribing"
-        : $appStatus.phase === "transcribing"
-          ? "Show completed"
-          : "Restart mock flow";
+  $: selectedMicrophoneLabel =
+    microphoneOptions.find((option) => option.value === $settingsDraft.selectedMicrophone)?.label ??
+    "System default microphone";
+  $: primaryMockActionLabel = isRunningMockTranscription ? "Transcribing…" : "Run mock transcription";
+  $: mockHistoryModeLabel = $settingsDraft.saveTranscriptionHistory
+    ? "This fake transcript will be written to local history."
+    : "This fake transcript will stay out of local history.";
   $: settingsStatusMessage =
     settingsState === "loading"
       ? "Loading saved preferences…"
@@ -249,21 +253,50 @@
     });
   }
 
-  function setMockPhase(phase: RecordingPhase) {
-    appStatus.setPhase(phase);
-  }
-
-  function advanceMockPhase() {
-    if ($appStatus.phase === "completed" || $appStatus.phase === "error") {
-      appStatus.reset();
+  async function startMockTranscription() {
+    if (isRunningMockTranscription) {
       return;
     }
 
-    appStatus.advance();
+    isRunningMockTranscription = true;
+    appStatus.setStatus(
+      getAppStatusForPhase("transcribing", {
+        inputLabel: `${selectedMicrophoneLabel} (mock)`,
+        detail:
+          "The frontend is waiting on the explicit Rust mock transcription command. No real recording or provider call happens in Release 0.5."
+      })
+    );
+
+    try {
+      const result = await runMockTranscription();
+
+      appStatus.setStatus(buildCompletedMockStatus(result));
+
+      if (result.savedToHistory) {
+        await loadHistoryEntries();
+      }
+    } catch (error) {
+      appStatus.setStatus(
+        getAppStatusForPhase("error", {
+          inputLabel: `${selectedMicrophoneLabel} (mock)`,
+          detail: error instanceof Error ? error.message : "Unable to finish the mock transcription flow.",
+          transcriptPreview:
+            "The built-in mock transcription command did not finish. No real recording or external provider work was involved."
+        })
+      );
+    } finally {
+      isRunningMockTranscription = false;
+    }
   }
 
   function showMockError() {
-    appStatus.setPhase("error");
+    appStatus.setStatus(
+      getAppStatusForPhase("error", {
+        inputLabel: `${selectedMicrophoneLabel} (mock)`,
+        detail:
+          "This is a manual fake failure state for Release 0.5. It helps verify how the UI surfaces a mock pipeline error."
+      })
+    );
   }
 
   function resetMockFlow() {
@@ -343,6 +376,23 @@
 
     return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   }
+
+  function buildCompletedMockStatus(result: RunMockTranscriptionResult) {
+    const historyDetail = result.savedToHistory
+      ? "Saved to the local SQLite history because the persisted setting enables history."
+      : "Not saved to SQLite because the persisted setting disables transcription history.";
+
+    return getAppStatusForPhase("completed", {
+      headline: "Mock transcript ready.",
+      detail: `${historyDetail} The result is still intentionally fake for Release 0.5.`,
+      transcriptTitle: result.savedToHistory
+        ? "Mock transcript saved locally"
+        : "Mock transcript kept in memory only",
+      transcriptPreview: result.transcript.text,
+      inputLabel: `${selectedMicrophoneLabel} (mock)`,
+      durationLabel: formatDuration(result.transcript.durationMs)
+    });
+  }
 </script>
 
 <svelte:head>
@@ -356,11 +406,11 @@
 <main class="app-shell">
   <aside class="sidebar">
     <div class="brand-block">
-      <p class="eyebrow">Release 0.4</p>
+      <p class="eyebrow">Release 0.5</p>
       <h1>SpeakEx</h1>
       <p class="brand-copy">
-        Local-first transcription for the desktop. This release keeps the shell in place while loading
-        saved transcript history from local SQLite storage.
+        Local-first transcription for the desktop. This release adds a narrow mock transcription flow
+        from the UI into Rust while keeping the behavior obviously fake.
       </p>
     </div>
 
@@ -411,16 +461,18 @@
           {/if}
         </h2>
       </div>
-      <p class="workspace-copy">
-        {#if $activeSection === "recording"}
-          Mock app state now feeds the primary capture workspace, including status and transcript preview.
-        {:else if $activeSection === "history"}
-          Saved transcript history now loads from the local database and supports explicit delete actions.
-        {:else}
-          Provider selection and preferences now hydrate from local storage and save back through the
-          settings access layer.
-        {/if}
-      </p>
+        <p class="workspace-copy">
+          {#if $activeSection === "recording"}
+            The recording workspace now calls a narrow Rust mock transcription command and reflects
+            whether the fake result was stored locally.
+          {:else if $activeSection === "history"}
+            Saved transcript history now loads from the local database and includes mock transcripts
+            only when the saved history setting allows it.
+          {:else}
+            Provider selection and preferences still hydrate from local storage and continue to drive
+            the mock pipeline rules.
+          {/if}
+        </p>
     </header>
 
     {#if $activeSection === "recording"}
@@ -431,22 +483,33 @@
             <h3>{$appStatus.headline}</h3>
             <p>{$appStatus.detail}</p>
             <p class="provider-caption">Current draft provider: <strong>{selectedProviderLabel}</strong></p>
-            <p class="phase-note">Everything in this panel is a frontend-only mock for Release 0.2.</p>
+            <p class="phase-note">Release 0.5 always uses the built-in mock provider from Rust.</p>
+            <p class="phase-note">{mockHistoryModeLabel}</p>
           </div>
 
           <div class="hero-actions">
-            <button type="button" class="primary-button" on:click={advanceMockPhase}>
+            <button
+              type="button"
+              class="primary-button"
+              on:click={startMockTranscription}
+              disabled={isRunningMockTranscription}
+            >
               {primaryMockActionLabel}
             </button>
             <button
               type="button"
               class="secondary-button"
               on:click={resetMockFlow}
-              disabled={$appStatus.phase === "idle"}
+              disabled={$appStatus.phase === "idle" || isRunningMockTranscription}
             >
               Reset to idle
             </button>
-            <button type="button" class="ghost-button" on:click={showMockError}>
+            <button
+              type="button"
+              class="ghost-button"
+              on:click={showMockError}
+              disabled={isRunningMockTranscription}
+            >
               Show error state
             </button>
           </div>
@@ -515,7 +578,7 @@
         <section class="card controller-card">
           <div class="section-heading">
             <div>
-              <p class="label">Mock state controls</p>
+              <p class="label">Mock pipeline status</p>
               <h3>Current app state</h3>
             </div>
           </div>
@@ -531,25 +594,29 @@
             <p class="label">Visible now</p>
             <h3>{$appStatus.phaseLabel}</h3>
             <p>
-              The recording workspace is showing the <strong>{$appStatus.phase}</strong> phase from
-              the local frontend store.
+              The recording workspace is showing the <strong>{$appStatus.phase}</strong> phase while
+              the local UI coordinates the explicit <code>run_mock_transcription</code> command.
             </p>
           </div>
 
-          <div class="phase-button-grid">
-            {#each mockRecordingPhases as phaseStatus}
-              <button
-                type="button"
-                class="phase-button"
-                class:active={$appStatus.phase === phaseStatus.phase}
-                aria-pressed={$appStatus.phase === phaseStatus.phase}
-                on:click={() => setMockPhase(phaseStatus.phase)}
-              >
-                <span>{phaseStatus.phaseLabel}</span>
-                <small>{phaseStatus.headline}</small>
-              </button>
-            {/each}
-          </div>
+          <dl class="history-meta draft-meta">
+            <div>
+              <dt>Mock command</dt>
+              <dd><code>run_mock_transcription</code></dd>
+            </div>
+            <div>
+              <dt>Execution mode</dt>
+              <dd>Local fake transcript only</dd>
+            </div>
+            <div>
+              <dt>History save</dt>
+              <dd>{$settingsDraft.saveTranscriptionHistory ? "Enabled" : "Disabled"}</dd>
+            </div>
+            <div>
+              <dt>Selected microphone</dt>
+              <dd>{selectedMicrophoneLabel}</dd>
+            </div>
+          </dl>
         </section>
 
         <section class="card steps-card">
@@ -580,8 +647,8 @@
             </span>
           </div>
           <p>
-            This view now reads saved transcripts from SQLite through explicit native commands. It stays
-            limited to loading and deletion for Release 0.4.
+            This view reads saved transcripts from SQLite through explicit native commands. In Release
+            0.5, mock transcriptions appear here only when saved history is enabled.
           </p>
           <div class="history-toolbar">
             <p class:pending={historyState === "loading"} class:success={historyState === "ready" && historyError === ""} class:error={historyError !== ""}>
@@ -919,8 +986,7 @@
   }
 
   .section-nav button,
-  .provider-button,
-  .phase-button {
+  .provider-button {
     display: grid;
     gap: 0.2rem;
     width: 100%;
@@ -940,24 +1006,20 @@
   .section-nav button:hover,
   .section-nav button.active,
   .provider-button:hover,
-  .provider-button.active,
-  .phase-button:hover,
-  .phase-button.active {
+  .provider-button.active {
     transform: translateY(-1px);
     border-color: rgba(125, 211, 252, 0.5);
     background: rgba(30, 41, 59, 0.9);
   }
 
   .section-nav span,
-  .provider-button span,
-  .phase-button span {
+  .provider-button span {
     font-size: 1rem;
     font-weight: 700;
   }
 
   .section-nav small,
-  .provider-button small,
-  .phase-button small {
+  .provider-button small {
     font-size: 0.9rem;
   }
 
@@ -1272,12 +1334,6 @@
 
   .current-state-panel p {
     margin: 0;
-  }
-
-  .phase-button-grid {
-    display: grid;
-    gap: 0.85rem;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   }
 
   .provider-grid,

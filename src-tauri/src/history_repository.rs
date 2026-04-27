@@ -1,5 +1,5 @@
 use crate::history_database::HistoryDatabase;
-use rusqlite::{Connection, OptionalExtension, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 
 #[derive(Clone, Debug)]
@@ -48,6 +48,20 @@ pub struct DeleteTranscriptionResult {
 #[serde(rename_all = "camelCase")]
 pub struct ClearHistoryResult {
     pub deleted_count: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct NewHistoryTranscription {
+    pub id: String,
+    pub text: String,
+    pub provider: String,
+    pub model: Option<String>,
+    pub language: Option<String>,
+    pub duration_ms: Option<i64>,
+    pub audio_path: Option<String>,
+    pub audio_deleted: bool,
+    pub copied_to_clipboard: bool,
+    pub error: Option<String>,
 }
 
 impl HistoryRepository {
@@ -130,6 +144,42 @@ impl HistoryRepository {
             .map_err(|error| format!("failed to clear history: {error}"))?;
 
         Ok(ClearHistoryResult { deleted_count })
+    }
+
+    pub fn save_transcription(&self, entry: &NewHistoryTranscription) -> Result<(), String> {
+        let connection = self.open_connection()?;
+
+        connection
+            .execute(
+                "INSERT INTO transcriptions (
+                    id,
+                    text,
+                    provider,
+                    model,
+                    language,
+                    duration_ms,
+                    audio_path,
+                    audio_deleted,
+                    copied_to_clipboard,
+                    error,
+                    created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                params![
+                    entry.id,
+                    entry.text,
+                    entry.provider,
+                    entry.model,
+                    entry.language,
+                    entry.duration_ms,
+                    entry.audio_path,
+                    entry.audio_deleted,
+                    entry.copied_to_clipboard,
+                    entry.error
+                ],
+            )
+            .map_err(|error| format!("failed to save transcription {}: {error}", entry.id))?;
+
+        Ok(())
     }
 
     fn open_connection(&self) -> Result<Connection, String> {
