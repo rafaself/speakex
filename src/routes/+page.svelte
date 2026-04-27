@@ -2,12 +2,17 @@
   import { onMount } from "svelte";
   import { get } from "svelte/store";
 
+  import {
+    clearHistory,
+    deleteTranscription,
+    getHistory,
+    type HistoryTranscriptionSummary
+  } from "$lib/native/history";
   import { loadAppSettings, saveAppSettings } from "$lib/native/settings";
   import { ping } from "$lib/native/ping";
   import {
     activeSection,
     appStatus,
-    historyEntries,
     languageOptions,
     microphoneOptions,
     mockRecordingPhases,
@@ -23,6 +28,23 @@
 
   type PingState = "idle" | "loading" | "success" | "error";
   type SettingsState = "idle" | "loading" | "saving" | "error";
+  type HistoryState = "loading" | "ready" | "error";
+
+  type HistoryEntryStatus = "saved" | "attention";
+
+  interface HistoryEntryViewModel {
+    id: string;
+    title: string;
+    excerpt: string;
+    providerLabel: string;
+    createdAtLabel: string;
+    durationLabel: string;
+    languageLabel: string;
+    clipboardLabel: string;
+    audioLabel: string;
+    status: HistoryEntryStatus;
+    statusLabel: string;
+  }
 
   const providerLabels = new Map(providerOptions.map((provider) => [provider.id, provider.label]));
 
@@ -34,6 +56,11 @@
   let lastSavedSettings: SettingsDraft | null = null;
   let settingsSaveQueue = Promise.resolve();
   let latestSettingsRequest = 0;
+  let historyState: HistoryState = "loading";
+  let historyEntries: HistoryEntryViewModel[] = [];
+  let historyError = "";
+  let historyBusyEntryId: string | null = null;
+  let isClearingHistory = false;
 
   $: selectedProviderLabel = providerLabels.get($providerSelection) ?? "Unknown provider";
   $: primaryMockActionLabel =
@@ -49,9 +76,23 @@
       ? "Loading saved preferences…"
       : settingsState === "saving"
         ? "Saving changes locally…"
-        : settingsState === "error"
+      : settingsState === "error"
           ? settingsError
           : "Preferences are stored locally on this device.";
+  $: historyStatusMessage =
+    historyState === "loading"
+      ? "Loading transcript history from the local database…"
+      : historyState === "error" || historyError !== ""
+        ? historyError
+        : historyEntries.length === 0
+          ? "No saved transcripts yet."
+          : `${historyEntries.length} saved transcript${historyEntries.length === 1 ? "" : "s"} loaded locally.`;
+  $: historyCountLabel =
+    historyState === "loading"
+      ? "Loading…"
+      : historyState === "error"
+        ? "Unavailable"
+        : `${historyEntries.length} saved item${historyEntries.length === 1 ? "" : "s"}`;
 
   async function runPing() {
     pingState = "loading";
@@ -124,6 +165,63 @@
     }
   }
 
+  async function loadHistoryEntries() {
+    historyState = "loading";
+    historyError = "";
+
+    try {
+      historyEntries = (await getHistory()).map(mapHistoryEntry);
+      historyState = "ready";
+    } catch (error) {
+      historyEntries = [];
+      historyError = error instanceof Error ? error.message : "Unable to load saved transcripts";
+      historyState = "error";
+    }
+  }
+
+  async function removeHistoryEntry(id: string) {
+    if (historyBusyEntryId || isClearingHistory) {
+      return;
+    }
+
+    historyBusyEntryId = id;
+    historyError = "";
+
+    try {
+      const result = await deleteTranscription(id);
+
+      if (!result.deleted) {
+        throw new Error("The selected transcript was not found in local history.");
+      }
+
+      historyEntries = historyEntries.filter((entry) => entry.id !== id);
+      historyState = "ready";
+    } catch (error) {
+      historyError = error instanceof Error ? error.message : "Unable to delete the selected transcript";
+    } finally {
+      historyBusyEntryId = null;
+    }
+  }
+
+  async function clearAllHistory() {
+    if (isClearingHistory || historyEntries.length === 0 || historyBusyEntryId) {
+      return;
+    }
+
+    isClearingHistory = true;
+    historyError = "";
+
+    try {
+      await clearHistory();
+      historyEntries = [];
+      historyState = "ready";
+    } catch (error) {
+      historyError = error instanceof Error ? error.message : "Unable to clear transcript history";
+    } finally {
+      isClearingHistory = false;
+    }
+  }
+
   function updateProvider(provider: ProviderId) {
     void persistSettings({ ...get(settingsDraft), provider });
   }
@@ -175,7 +273,76 @@
   onMount(() => {
     void runPing();
     void hydrateSettings();
+    void loadHistoryEntries();
   });
+
+  function mapHistoryEntry(entry: HistoryTranscriptionSummary): HistoryEntryViewModel {
+    return {
+      id: entry.id,
+      title: createHistoryTitle(entry.text),
+      excerpt: createHistoryExcerpt(entry.text),
+      providerLabel: [entry.provider, entry.model].filter(Boolean).join(" · ") || "Unknown provider",
+      createdAtLabel: formatCreatedAt(entry.createdAt),
+      durationLabel: formatDuration(entry.durationMs),
+      languageLabel: entry.language ?? "Auto / unspecified",
+      clipboardLabel: entry.copiedToClipboard ? "Copied" : "Not copied",
+      audioLabel: entry.hasAudioFile ? "Saved" : "None",
+      status: entry.hasError ? "attention" : "saved",
+      statusLabel: entry.hasError ? "Stored with error" : "Stored"
+    };
+  }
+
+  function createHistoryTitle(text: string): string {
+    const trimmedText = text.trim();
+
+    if (!trimmedText) {
+      return "Untitled transcript";
+    }
+
+    const firstLine = trimmedText.split(/\r?\n/u, 1)[0] ?? trimmedText;
+
+    return firstLine.length > 56 ? `${firstLine.slice(0, 53).trimEnd()}…` : firstLine;
+  }
+
+  function createHistoryExcerpt(text: string): string {
+    const normalizedText = text.replace(/\s+/gu, " ").trim();
+
+    if (!normalizedText) {
+      return "Saved transcript text is empty.";
+    }
+
+    return normalizedText.length > 180 ? `${normalizedText.slice(0, 177).trimEnd()}…` : normalizedText;
+  }
+
+  function formatCreatedAt(value: string): string {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.valueOf())) {
+      return value;
+    }
+
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short"
+    }).format(date);
+  }
+
+  function formatDuration(durationMs: number | null): string {
+    if (durationMs === null || durationMs < 0) {
+      return "—";
+    }
+
+    const totalSeconds = Math.round(durationMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
 </script>
 
 <svelte:head>
@@ -189,11 +356,11 @@
 <main class="app-shell">
   <aside class="sidebar">
     <div class="brand-block">
-      <p class="eyebrow">Release 0.3</p>
+      <p class="eyebrow">Release 0.4</p>
       <h1>SpeakEx</h1>
       <p class="brand-copy">
-        Local-first transcription for the desktop. This release keeps the shell in place while storing
-        non-sensitive settings locally between app launches.
+        Local-first transcription for the desktop. This release keeps the shell in place while loading
+        saved transcript history from local SQLite storage.
       </p>
     </div>
 
@@ -248,7 +415,7 @@
         {#if $activeSection === "recording"}
           Mock app state now feeds the primary capture workspace, including status and transcript preview.
         {:else if $activeSection === "history"}
-          Placeholder history rows now come from frontend store data instead of inline page content.
+          Saved transcript history now loads from the local database and supports explicit delete actions.
         {:else}
           Provider selection and preferences now hydrate from local storage and save back through the
           settings access layer.
@@ -340,7 +507,7 @@
             </div>
             <div>
               <dt>History</dt>
-              <dd>{$historyEntries.length} mock items</dd>
+              <dd>{historyCountLabel}</dd>
             </div>
           </dl>
         </section>
@@ -402,41 +569,120 @@
       </div>
     {:else if $activeSection === "history"}
       <div class="view-grid placeholder-grid">
-        <section class="card empty-card">
-          <p class="label">History</p>
-          <h3>Mock transcript list</h3>
+        <section class="card list-card">
+          <div class="section-heading">
+            <div>
+              <p class="label">History</p>
+              <h3>Local transcript storage</h3>
+            </div>
+            <span class="status-pill" class:errorState={historyError !== "" && historyState !== "loading"}>
+              {historyState === "loading" ? "Loading" : historyEntries.length === 0 ? "Empty" : "Ready"}
+            </span>
+          </div>
           <p>
-            These entries live only in a frontend store for Release 0.2. Real loading, persistence,
-            and actions arrive in later releases.
+            This view now reads saved transcripts from SQLite through explicit native commands. It stays
+            limited to loading and deletion for Release 0.4.
           </p>
+          <div class="history-toolbar">
+            <p class:pending={historyState === "loading"} class:success={historyState === "ready" && historyError === ""} class:error={historyError !== ""}>
+              {historyStatusMessage}
+            </p>
+            <div class="history-actions">
+              <button type="button" class="ghost-button" on:click={loadHistoryEntries} disabled={historyState === "loading" || isClearingHistory}>
+                {historyState === "loading" ? "Loading…" : "Reload"}
+              </button>
+              <button
+                type="button"
+                class="secondary-button"
+                on:click={clearAllHistory}
+                disabled={historyState === "loading" || isClearingHistory || historyEntries.length === 0 || historyBusyEntryId !== null}
+              >
+                {isClearingHistory ? "Clearing…" : "Clear all"}
+              </button>
+            </div>
+          </div>
         </section>
 
-        {#each $historyEntries as entry}
-          <article class="card history-card">
-            <div class="section-heading">
-              <div>
-                <p class="label">{entry.createdAtLabel}</p>
-                <h3>{entry.title}</h3>
-              </div>
-              <span class:muted={entry.status === "saved"} class:errorState={entry.status === "attention"} class="status-pill">
-                {entry.status === "saved" ? "Stored mock" : "Needs review"}
-              </span>
-            </div>
+        {#if historyState === "loading"}
+          <section class="card empty-card">
+            <p class="label">History</p>
+            <h3>Loading saved transcripts</h3>
+            <p>The app is requesting the current transcript list from the local SQLite history store.</p>
+          </section>
+        {:else if historyState === "error"}
+          <section class="card empty-card">
+            <p class="label">History</p>
+            <h3>History is unavailable</h3>
+            <p>{historyError}</p>
+            <button type="button" class="ghost-button" on:click={loadHistoryEntries}>Try again</button>
+          </section>
+        {:else if historyEntries.length === 0}
+          <section class="card empty-card">
+            <p class="label">History</p>
+            <h3>No saved transcripts yet</h3>
+            <p>
+              Local history storage is ready, but the database does not contain any transcripts yet.
+            </p>
+          </section>
+        {:else}
+          {#if historyError !== ""}
+            <section class="card empty-card">
+              <p class="label">History</p>
+              <h3>Last action failed</h3>
+              <p>{historyError}</p>
+            </section>
+          {/if}
 
-            <p>{entry.excerpt}</p>
+          {#each historyEntries as entry}
+            <article class="card history-card">
+              <div class="section-heading">
+                <div>
+                  <p class="label">{entry.createdAtLabel}</p>
+                  <h3>{entry.title}</h3>
+                </div>
+                <span class:muted={entry.status === "saved"} class:errorState={entry.status === "attention"} class="status-pill">
+                  {entry.statusLabel}
+                </span>
+              </div>
 
-            <dl class="history-meta">
-              <div>
-                <dt>Provider</dt>
-                <dd>{entry.providerLabel}</dd>
+              <p>{entry.excerpt}</p>
+
+              <dl class="history-meta">
+                <div>
+                  <dt>Provider</dt>
+                  <dd>{entry.providerLabel}</dd>
+                </div>
+                <div>
+                  <dt>Duration</dt>
+                  <dd>{entry.durationLabel}</dd>
+                </div>
+                <div>
+                  <dt>Language</dt>
+                  <dd>{entry.languageLabel}</dd>
+                </div>
+                <div>
+                  <dt>Clipboard</dt>
+                  <dd>{entry.clipboardLabel}</dd>
+                </div>
+                <div>
+                  <dt>Audio file</dt>
+                  <dd>{entry.audioLabel}</dd>
+                </div>
+              </dl>
+
+              <div class="history-card-actions">
+                <button
+                  type="button"
+                  class="ghost-button"
+                  on:click={() => removeHistoryEntry(entry.id)}
+                  disabled={isClearingHistory || historyBusyEntryId !== null}
+                >
+                  {historyBusyEntryId === entry.id ? "Deleting…" : "Delete"}
+                </button>
               </div>
-              <div>
-                <dt>Duration</dt>
-                <dd>{entry.durationLabel}</dd>
-              </div>
-            </dl>
-          </article>
-        {/each}
+            </article>
+          {/each}
+        {/if}
       </div>
     {:else}
       <div class="view-grid placeholder-grid settings-grid">
@@ -837,6 +1083,24 @@
     gap: 0.75rem;
   }
 
+  .history-toolbar,
+  .history-actions,
+  .history-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .history-toolbar {
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .history-actions,
+  .history-card-actions {
+    justify-content: flex-end;
+  }
+
   .transcript-card {
     grid-column: span 5;
     display: grid;
@@ -1125,6 +1389,10 @@
 
     .setting-row {
       display: grid;
+    }
+
+    .history-toolbar {
+      align-items: stretch;
     }
   }
 </style>

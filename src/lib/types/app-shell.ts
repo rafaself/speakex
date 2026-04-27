@@ -31,13 +31,3 @@ export interface ProviderOption {
 export type SettingsDraft = AppSettings;
 
 export type { ProviderId };
-
-export interface HistoryEntry {
-  id: string;
-  title: string;
-  excerpt: string;
-  providerLabel: string;
-  createdAtLabel: string;
-  durationLabel: string;
-  status: "saved" | "attention";
-}

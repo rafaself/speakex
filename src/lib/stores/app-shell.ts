@@ -5,7 +5,6 @@ import { createDefaultAppSettings } from "$lib/settings/schema";
 import type {
   AppSection,
   AppStatus,
-  HistoryEntry,
   NavigationSection,
   RecordingPhase,
   ProviderId,
@@ -22,7 +21,7 @@ export const navigationSections: NavigationSection[] = [
   {
     id: "history",
     label: "History",
-    blurb: "Saved transcripts later"
+    blurb: "Saved transcripts locally"
   },
   {
     id: "settings",
@@ -175,33 +174,3 @@ export const providerSelection = {
     settingsDraft.patch({ provider });
   }
 };
-
-export const historyEntries = writable<HistoryEntry[]>([
-  {
-    id: "hist-001",
-    title: "Standup recap placeholder",
-    excerpt: "Summarize yesterday's blockers, today's focus, and any follow-up items in a short transcript.",
-    providerLabel: "Gemini draft",
-    createdAtLabel: "Today · 09:10",
-    durationLabel: "00:48",
-    status: "saved"
-  },
-  {
-    id: "hist-002",
-    title: "Idea capture placeholder",
-    excerpt: "A scratchpad entry for a future transcription result, kept local to the frontend while persistence is unimplemented.",
-    providerLabel: "Gemini draft",
-    createdAtLabel: "Yesterday · 18:42",
-    durationLabel: "01:15",
-    status: "saved"
-  },
-  {
-    id: "hist-003",
-    title: "Needs review placeholder",
-    excerpt: "This mock row reserves space for an error or attention state without adding any native retry behavior yet.",
-    providerLabel: "Gemini draft",
-    createdAtLabel: "Yesterday · 11:03",
-    durationLabel: "00:22",
-    status: "attention"
-  }
-]);
