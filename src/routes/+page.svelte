@@ -8,31 +8,44 @@
     getHistory,
     type HistoryTranscriptionSummary
   } from "$lib/native/history";
+  import { loadAppSettings, saveAppSettings } from "$lib/native/settings";
+  import { ping } from "$lib/native/ping";
+  import {
+    cancelRecording,
+    listRecordingInputDevices,
+    startRecording,
+    stopRecording,
+    type ActiveRecordingSession,
+    type RecordingInputDevice,
+    type StoppedRecording
+  } from "$lib/native/recording";
   import {
     runMockTranscription,
     type RunMockTranscriptionResult
   } from "$lib/native/transcription";
-  import { loadAppSettings, saveAppSettings } from "$lib/native/settings";
-  import { ping } from "$lib/native/ping";
   import {
     activeSection,
     appStatus,
+    createRecordingInputOptions,
+    defaultRecordingInputOption,
     getAppStatusForPhase,
     languageOptions,
-    microphoneOptions,
     navigationSections,
     providerOptions,
     providerSelection,
+    recordingInputOptions,
     recordingPlanSteps,
     settingsDraft,
     type DraftToggleKey
   } from "$lib/stores/app-shell";
   import type { ProviderId } from "$lib/settings/schema";
-  import type { SettingsDraft } from "$lib/types/app-shell";
+  import type { RecordedAudioMetadata, SettingsDraft } from "$lib/types/app-shell";
 
   type PingState = "idle" | "loading" | "success" | "error";
   type SettingsState = "idle" | "loading" | "saving" | "error";
   type HistoryState = "loading" | "ready" | "error";
+  type RecordingDevicesState = "loading" | "ready" | "error";
+  type RecordingCommandState = "starting" | "stopping" | "cancelling" | null;
 
   type HistoryEntryStatus = "saved" | "attention";
 
@@ -66,21 +79,36 @@
   let historyBusyEntryId: string | null = null;
   let isClearingHistory = false;
   let isRunningMockTranscription = false;
+  let recordingDevicesState: RecordingDevicesState = "loading";
+  let recordingDevicesError = "";
+  let availableRecordingDevices: RecordingInputDevice[] = [];
+  let recordingCommandState: RecordingCommandState = null;
+  let activeRecordingSession: ActiveRecordingSession | null = null;
 
   $: selectedProviderLabel = providerLabels.get($providerSelection) ?? "Unknown provider";
-  $: selectedMicrophoneLabel =
-    microphoneOptions.find((option) => option.value === $settingsDraft.selectedMicrophone)?.label ??
-    "System default microphone";
+  $: selectedMicrophoneOption =
+    $recordingInputOptions.find((option) => option.value === $settingsDraft.selectedMicrophone) ??
+    defaultRecordingInputOption;
+  $: selectedMicrophoneLabel = selectedMicrophoneOption.label;
+  $: selectedMicrophoneUnavailable = selectedMicrophoneOption.unavailable ?? false;
   $: primaryMockActionLabel = isRunningMockTranscription ? "Transcribing…" : "Run mock transcription";
+  $: recordingDevicesStatusMessage =
+    recordingDevicesState === "loading"
+      ? "Loading available microphones from Rust…"
+      : recordingDevicesState === "error"
+        ? recordingDevicesError
+        : availableRecordingDevices.length === 0
+          ? "No recording inputs were reported by Rust."
+          : `${availableRecordingDevices.length} microphone${availableRecordingDevices.length === 1 ? "" : "s"} available from Rust.`;
   $: mockHistoryModeLabel = $settingsDraft.saveTranscriptionHistory
-    ? "This fake transcript will be written to local history."
-    : "This fake transcript will stay out of local history.";
+    ? "Mock transcripts will still be written to local history."
+    : "Mock transcripts will stay out of local history.";
   $: settingsStatusMessage =
     settingsState === "loading"
       ? "Loading saved preferences…"
       : settingsState === "saving"
         ? "Saving changes locally…"
-      : settingsState === "error"
+        : settingsState === "error"
           ? settingsError
           : "Preferences are stored locally on this device.";
   $: historyStatusMessage =
@@ -97,6 +125,32 @@
       : historyState === "error"
         ? "Unavailable"
         : `${historyEntries.length} saved item${historyEntries.length === 1 ? "" : "s"}`;
+  $: currentRecordedAudio = $appStatus.recordedAudio;
+  $: canStartRecording =
+    recordingDevicesState === "ready" &&
+    recordingCommandState === null &&
+    activeRecordingSession === null &&
+    !isRunningMockTranscription &&
+    !selectedMicrophoneUnavailable;
+  $: canStopRecording =
+    activeRecordingSession !== null &&
+    recordingCommandState === null &&
+    !isRunningMockTranscription;
+  $: canCancelRecording =
+    activeRecordingSession !== null &&
+    recordingCommandState === null &&
+    !isRunningMockTranscription;
+  $: canRunMockTranscription =
+    activeRecordingSession === null &&
+    recordingCommandState === null &&
+    !isRunningMockTranscription;
+  $: resetActionLabel = currentRecordedAudio ? "Clear recorded preview" : "Reset to idle";
+  $: recordingActionLabel =
+    recordingCommandState === "starting"
+      ? "Starting…"
+      : activeRecordingSession === null
+        ? "Start recording"
+        : "Recording active";
 
   async function runPing() {
     pingState = "loading";
@@ -110,6 +164,12 @@
       pingError = error instanceof Error ? error.message : "Unknown ping failure";
       pingState = "error";
     }
+  }
+
+  async function initializeWorkspace() {
+    await hydrateSettings();
+    await loadRecordingDevices();
+    syncIdleStatus();
   }
 
   async function hydrateSettings() {
@@ -154,6 +214,14 @@
       }
 
       settingsDraft.patch(persistedSettings);
+      recordingInputOptions.set(
+        createRecordingInputOptions(availableRecordingDevices, persistedSettings.selectedMicrophone)
+      );
+
+      if (activeRecordingSession === null && get(appStatus).phase === "idle") {
+        syncIdleStatus();
+      }
+
       settingsState = "idle";
     } catch (error) {
       if (requestId !== latestSettingsRequest) {
@@ -165,7 +233,35 @@
 
       if (lastSavedSettings) {
         settingsDraft.patch(lastSavedSettings);
+        recordingInputOptions.set(
+          createRecordingInputOptions(availableRecordingDevices, lastSavedSettings.selectedMicrophone)
+        );
       }
+    }
+  }
+
+  async function loadRecordingDevices() {
+    recordingDevicesState = "loading";
+    recordingDevicesError = "";
+
+    try {
+      availableRecordingDevices = await listRecordingInputDevices();
+      recordingInputOptions.set(
+        createRecordingInputOptions(availableRecordingDevices, get(settingsDraft).selectedMicrophone)
+      );
+      recordingDevicesState = "ready";
+    } catch (error) {
+      availableRecordingDevices = [];
+      recordingDevicesError =
+        error instanceof Error ? error.message : "Unable to load recording input devices";
+      recordingInputOptions.set(
+        createRecordingInputOptions(availableRecordingDevices, get(settingsDraft).selectedMicrophone)
+      );
+      recordingDevicesState = "error";
+    }
+
+    if (activeRecordingSession === null && get(appStatus).phase === "idle") {
+      syncIdleStatus();
     }
   }
 
@@ -238,9 +334,13 @@
   }
 
   function updateMicrophone(event: Event) {
+    const selectedMicrophone = (event.currentTarget as HTMLSelectElement).value;
+
+    recordingInputOptions.set(createRecordingInputOptions(availableRecordingDevices, selectedMicrophone));
+
     void persistSettings({
       ...get(settingsDraft),
-      selectedMicrophone: (event.currentTarget as HTMLSelectElement).value
+      selectedMicrophone
     });
   }
 
@@ -253,24 +353,137 @@
     });
   }
 
+  async function beginRecording() {
+    if (!canStartRecording) {
+      if (selectedMicrophoneUnavailable) {
+        appStatus.setStatus(
+          getAppStatusForPhase("error", {
+            detail:
+              "The saved microphone is unavailable. Choose one of the loaded inputs before starting a recording.",
+            transcriptPreview:
+              "The recorder was not started because the current microphone selection does not match any available device.",
+            inputLabel: selectedMicrophoneLabel,
+            recordedAudio: null
+          })
+        );
+      }
+
+      return;
+    }
+
+    recordingCommandState = "starting";
+
+    try {
+      const session = await startRecording(resolveSelectedDeviceName());
+
+      activeRecordingSession = session;
+      appStatus.setStatus(
+        getAppStatusForPhase("recording", {
+          detail:
+            "Audio capture is active through Rust. Use Stop to keep the temporary WAV file or Cancel to delete it.",
+          transcriptPreview:
+            `Recording session ${session.id} is writing a temporary WAV file in the app cache. No transcription will run automatically.`,
+          inputLabel: session.inputDeviceName,
+          durationLabel: "Recording…",
+          recordedAudio: null
+        })
+      );
+    } catch (error) {
+      appStatus.setStatus(
+        getAppStatusForPhase("error", {
+          detail: error instanceof Error ? error.message : "Unable to start the recorder.",
+          transcriptPreview:
+            "The native start_recording command did not succeed. Check the selected microphone and try again.",
+          inputLabel: selectedMicrophoneLabel,
+          recordedAudio: null
+        })
+      );
+    } finally {
+      recordingCommandState = null;
+    }
+  }
+
+  async function finishRecording() {
+    if (!canStopRecording) {
+      return;
+    }
+
+    recordingCommandState = "stopping";
+
+    try {
+      const stoppedRecording = await stopRecording();
+
+      activeRecordingSession = null;
+      appStatus.setStatus(buildCompletedRecordingStatus(stoppedRecording));
+    } catch (error) {
+      activeRecordingSession = null;
+      appStatus.setStatus(
+        getAppStatusForPhase("error", {
+          detail: error instanceof Error ? error.message : "Unable to stop the recorder.",
+          transcriptPreview:
+            "The native stop_recording command did not finish successfully. The recording session is no longer marked active in the UI.",
+          inputLabel: selectedMicrophoneLabel,
+          recordedAudio: null
+        })
+      );
+    } finally {
+      recordingCommandState = null;
+    }
+  }
+
+  async function discardRecording() {
+    if (!canCancelRecording) {
+      return;
+    }
+
+    recordingCommandState = "cancelling";
+
+    try {
+      const cancelled = await cancelRecording();
+
+      activeRecordingSession = null;
+      syncIdleStatus(
+        cancelled.deletedAudioPath
+          ? `Recording ${cancelled.sessionId} was cancelled and the temporary file was deleted from the app cache.`
+          : `Recording ${cancelled.sessionId} was cancelled before any audio file needed to be kept.`
+      );
+    } catch (error) {
+      activeRecordingSession = null;
+      appStatus.setStatus(
+        getAppStatusForPhase("error", {
+          detail: error instanceof Error ? error.message : "Unable to cancel the recorder.",
+          transcriptPreview:
+            "The native cancel_recording command did not finish successfully. Retry only after confirming the recorder returned to idle.",
+          inputLabel: selectedMicrophoneLabel,
+          recordedAudio: null
+        })
+      );
+    } finally {
+      recordingCommandState = null;
+    }
+  }
+
   async function startMockTranscription() {
-    if (isRunningMockTranscription) {
+    if (!canRunMockTranscription) {
       return;
     }
 
     isRunningMockTranscription = true;
+    const previousRecordedAudio = get(appStatus).recordedAudio;
+
     appStatus.setStatus(
       getAppStatusForPhase("transcribing", {
-        inputLabel: `${selectedMicrophoneLabel} (mock)`,
+        inputLabel: selectedMicrophoneLabel,
         detail:
-          "The frontend is waiting on the explicit Rust mock transcription command. No real recording or provider call happens in Release 0.5."
+          "The frontend is waiting on the explicit Rust mock transcription command. Any recorded WAV file remains separate from this fake flow.",
+        recordedAudio: previousRecordedAudio
       })
     );
 
     try {
       const result = await runMockTranscription();
 
-      appStatus.setStatus(buildCompletedMockStatus(result));
+      appStatus.setStatus(buildCompletedMockStatus(result, previousRecordedAudio));
 
       if (result.savedToHistory) {
         await loadHistoryEntries();
@@ -278,10 +491,11 @@
     } catch (error) {
       appStatus.setStatus(
         getAppStatusForPhase("error", {
-          inputLabel: `${selectedMicrophoneLabel} (mock)`,
+          inputLabel: selectedMicrophoneLabel,
           detail: error instanceof Error ? error.message : "Unable to finish the mock transcription flow.",
           transcriptPreview:
-            "The built-in mock transcription command did not finish. No real recording or external provider work was involved."
+            "The built-in mock transcription command did not finish. Any recorded audio remains local and separate from this fake provider path.",
+          recordedAudio: previousRecordedAudio
         })
       );
     } finally {
@@ -289,25 +503,104 @@
     }
   }
 
-  function showMockError() {
-    appStatus.setStatus(
-      getAppStatusForPhase("error", {
-        inputLabel: `${selectedMicrophoneLabel} (mock)`,
-        detail:
-          "This is a manual fake failure state for Release 0.5. It helps verify how the UI surfaces a mock pipeline error."
-      })
-    );
-  }
-
-  function resetMockFlow() {
-    appStatus.reset();
+  function resetWorkspace() {
+    activeRecordingSession = null;
+    syncIdleStatus();
   }
 
   onMount(() => {
     void runPing();
-    void hydrateSettings();
+    void initializeWorkspace();
     void loadHistoryEntries();
   });
+
+  function syncIdleStatus(detail = buildIdleDetail()) {
+    appStatus.setStatus(
+      getAppStatusForPhase("idle", {
+        detail,
+        transcriptPreview:
+          recordingDevicesState === "error"
+            ? "Microphone loading failed. Retry device loading or switch to the mock transcription flow while recording is unavailable."
+            : selectedMicrophoneUnavailable
+              ? "Choose an available microphone before starting a real recording. The saved selection is preserved so you can update it explicitly."
+              : "Start a recording to capture a temporary WAV file locally, or run the mock transcription path separately.",
+        inputLabel: selectedMicrophoneLabel,
+        durationLabel: "—",
+        recordedAudio: null
+      })
+    );
+  }
+
+  function buildIdleDetail() {
+    if (recordingDevicesState === "loading") {
+      return "Loading available microphones from Rust before the recording workflow becomes ready.";
+    }
+
+    if (recordingDevicesState === "error") {
+      return `Unable to load recording inputs: ${recordingDevicesError}`;
+    }
+
+    if (selectedMicrophoneUnavailable) {
+      return "The saved microphone is not currently available. Pick one of the loaded inputs before starting a real recording.";
+    }
+
+    return `Ready to record from ${selectedMicrophoneLabel}. Stop keeps the temporary WAV file and Cancel deletes it.`;
+  }
+
+  function resolveSelectedDeviceName() {
+    const selectedMicrophone = get(settingsDraft).selectedMicrophone;
+
+    return selectedMicrophone === "default" ? null : selectedMicrophone;
+  }
+
+  function buildCompletedRecordingStatus(stoppedRecording: StoppedRecording) {
+    const recordedAudio = mapStoppedRecording(stoppedRecording);
+
+    return getAppStatusForPhase("completed", {
+      headline: "Recorded audio is ready.",
+      detail:
+        "The recorder stopped successfully and kept the temporary WAV file for later releases. No transcription ran automatically.",
+      transcriptTitle: "Recorded audio metadata",
+      transcriptPreview: `${formatFileName(recordedAudio.path)} is available locally and ready for later manual flows.`,
+      inputLabel: stoppedRecording.inputDeviceName,
+      durationLabel: formatDuration(recordedAudio.durationMs),
+      recordedAudio
+    });
+  }
+
+  function buildCompletedMockStatus(
+    result: RunMockTranscriptionResult,
+    recordedAudio: RecordedAudioMetadata | null
+  ) {
+    const historyDetail = result.savedToHistory
+      ? "Saved to the local SQLite history because the persisted setting enables history."
+      : "Not saved to SQLite because the persisted setting disables transcription history.";
+
+    return getAppStatusForPhase("completed", {
+      headline: "Mock transcript ready.",
+      detail: `${historyDetail} The result is still intentionally fake and separate from recorded audio in Release 0.6.`,
+      transcriptTitle: result.savedToHistory
+        ? "Mock transcript saved locally"
+        : "Mock transcript kept in memory only",
+      transcriptPreview: result.transcript.text,
+      inputLabel: selectedMicrophoneLabel,
+      durationLabel: formatDuration(result.transcript.durationMs),
+      recordedAudio
+    });
+  }
+
+  function mapStoppedRecording(stoppedRecording: StoppedRecording): RecordedAudioMetadata {
+    return {
+      sessionId: stoppedRecording.sessionId,
+      path: stoppedRecording.audioInput.path,
+      mimeType: stoppedRecording.audioInput.mimeType,
+      durationMs: stoppedRecording.audioInput.durationMs,
+      inputDeviceName: stoppedRecording.inputDeviceName,
+      sampleRateHz: stoppedRecording.sampleRateHz,
+      channels: stoppedRecording.channels,
+      fileSizeBytes: stoppedRecording.fileSizeBytes
+    };
+  }
 
   function mapHistoryEntry(entry: HistoryTranscriptionSummary): HistoryEntryViewModel {
     return {
@@ -377,40 +670,39 @@
     return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   }
 
-  function buildCompletedMockStatus(result: RunMockTranscriptionResult) {
-    const historyDetail = result.savedToHistory
-      ? "Saved to the local SQLite history because the persisted setting enables history."
-      : "Not saved to SQLite because the persisted setting disables transcription history.";
+  function formatFileSize(fileSizeBytes: number): string {
+    if (fileSizeBytes < 1024) {
+      return `${fileSizeBytes} B`;
+    }
 
-    return getAppStatusForPhase("completed", {
-      headline: "Mock transcript ready.",
-      detail: `${historyDetail} The result is still intentionally fake for Release 0.5.`,
-      transcriptTitle: result.savedToHistory
-        ? "Mock transcript saved locally"
-        : "Mock transcript kept in memory only",
-      transcriptPreview: result.transcript.text,
-      inputLabel: `${selectedMicrophoneLabel} (mock)`,
-      durationLabel: formatDuration(result.transcript.durationMs)
-    });
+    if (fileSizeBytes < 1024 * 1024) {
+      return `${(fileSizeBytes / 1024).toFixed(1)} KB`;
+    }
+
+    return `${(fileSizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function formatFileName(path: string): string {
+    return path.split(/[/\\\\]/u).pop() ?? path;
   }
 </script>
 
 <svelte:head>
-  <title>SpeakEx — App Shell</title>
+  <title>SpeakEx — Audio Recording</title>
   <meta
     name="description"
-    content="SpeakEx desktop app shell with recording, history, and settings views."
+    content="SpeakEx desktop app shell with real audio recording, history, and settings views."
   />
 </svelte:head>
 
 <main class="app-shell">
   <aside class="sidebar">
     <div class="brand-block">
-      <p class="eyebrow">Release 0.5</p>
+      <p class="eyebrow">Release 0.6</p>
       <h1>SpeakEx</h1>
       <p class="brand-copy">
-        Local-first transcription for the desktop. This release adds a narrow mock transcription flow
-        from the UI into Rust while keeping the behavior obviously fake.
+        Local-first transcription for the desktop. This release wires the UI to the real recorder
+        commands while keeping mock transcription as a separate explicit action.
       </p>
     </div>
 
@@ -461,29 +753,32 @@
           {/if}
         </h2>
       </div>
-        <p class="workspace-copy">
-          {#if $activeSection === "recording"}
-            The recording workspace now calls a narrow Rust mock transcription command and reflects
-            whether the fake result was stored locally.
-          {:else if $activeSection === "history"}
-            Saved transcript history now loads from the local database and includes mock transcripts
-            only when the saved history setting allows it.
-          {:else}
-            Provider selection and preferences still hydrate from local storage and continue to drive
-            the mock pipeline rules.
-          {/if}
-        </p>
+      <p class="workspace-copy">
+        {#if $activeSection === "recording"}
+          The recording workspace now uses the real microphone list plus explicit start, stop, and
+          cancel recorder commands without chaining into transcription yet.
+        {:else if $activeSection === "history"}
+          Saved transcript history still loads from the local database. Mock transcripts appear here
+          only when the saved history setting allows them.
+        {:else}
+          Provider selection and preferences still hydrate from local storage, and the preferred
+          microphone now reflects the real device list exposed by Rust.
+        {/if}
+      </p>
     </header>
 
     {#if $activeSection === "recording"}
       <div class="view-grid recording-grid">
         <section class="card hero-card">
           <div class="hero-copy">
-            <p class="label">Main action</p>
+            <p class="label">Recorder controls</p>
             <h3>{$appStatus.headline}</h3>
             <p>{$appStatus.detail}</p>
             <p class="provider-caption">Current draft provider: <strong>{selectedProviderLabel}</strong></p>
-            <p class="phase-note">Release 0.5 always uses the built-in mock provider from Rust.</p>
+            <p class:pending={recordingDevicesState === "loading"} class:success={recordingDevicesState === "ready"} class:error={recordingDevicesState === "error"}>
+              {recordingDevicesStatusMessage}
+            </p>
+            <p class="phase-note">Real recording is active in Release 0.6. Mock transcription still stays separate on purpose.</p>
             <p class="phase-note">{mockHistoryModeLabel}</p>
           </div>
 
@@ -491,26 +786,42 @@
             <button
               type="button"
               class="primary-button"
+              on:click={beginRecording}
+              disabled={!canStartRecording}
+            >
+              {recordingActionLabel}
+            </button>
+            <button
+              type="button"
+              class="secondary-button"
+              on:click={finishRecording}
+              disabled={!canStopRecording}
+            >
+              {recordingCommandState === "stopping" ? "Stopping…" : "Stop and keep audio"}
+            </button>
+            <button
+              type="button"
+              class="ghost-button"
+              on:click={discardRecording}
+              disabled={!canCancelRecording}
+            >
+              {recordingCommandState === "cancelling" ? "Cancelling…" : "Cancel and discard"}
+            </button>
+            <button
+              type="button"
+              class="secondary-button"
               on:click={startMockTranscription}
-              disabled={isRunningMockTranscription}
+              disabled={!canRunMockTranscription}
             >
               {primaryMockActionLabel}
             </button>
             <button
               type="button"
-              class="secondary-button"
-              on:click={resetMockFlow}
-              disabled={$appStatus.phase === "idle" || isRunningMockTranscription}
-            >
-              Reset to idle
-            </button>
-            <button
-              type="button"
               class="ghost-button"
-              on:click={showMockError}
-              disabled={isRunningMockTranscription}
+              on:click={resetWorkspace}
+              disabled={activeRecordingSession !== null || ($appStatus.phase === "idle" && currentRecordedAudio === null)}
             >
-              Show error state
+              {resetActionLabel}
             </button>
           </div>
         </section>
@@ -519,7 +830,7 @@
           <div class="section-heading">
             <div>
               <p class="label">Preview area</p>
-              <h3>Transcript output</h3>
+              <h3>Recorder output</h3>
             </div>
             <span
               class="status-pill"
@@ -537,6 +848,35 @@
             <p>{$appStatus.transcriptTitle}</p>
             <p>{$appStatus.transcriptPreview}</p>
           </div>
+
+          {#if currentRecordedAudio}
+            <dl class="history-meta draft-meta">
+              <div>
+                <dt>Recorded file</dt>
+                <dd>{formatFileName(currentRecordedAudio.path)}</dd>
+              </div>
+              <div>
+                <dt>Stored at</dt>
+                <dd>{currentRecordedAudio.path}</dd>
+              </div>
+              <div>
+                <dt>Format</dt>
+                <dd>{currentRecordedAudio.mimeType}</dd>
+              </div>
+              <div>
+                <dt>Size</dt>
+                <dd>{formatFileSize(currentRecordedAudio.fileSizeBytes)}</dd>
+              </div>
+              <div>
+                <dt>Sample rate</dt>
+                <dd>{currentRecordedAudio.sampleRateHz} Hz</dd>
+              </div>
+              <div>
+                <dt>Channels</dt>
+                <dd>{currentRecordedAudio.channels}</dd>
+              </div>
+            </dl>
+          {/if}
         </section>
 
         <section class="card meta-card">
@@ -578,8 +918,8 @@
         <section class="card controller-card">
           <div class="section-heading">
             <div>
-              <p class="label">Mock pipeline status</p>
-              <h3>Current app state</h3>
+              <p class="label">Recorder bridge</p>
+              <h3>Current native state</h3>
             </div>
           </div>
 
@@ -594,27 +934,51 @@
             <p class="label">Visible now</p>
             <h3>{$appStatus.phaseLabel}</h3>
             <p>
-              The recording workspace is showing the <strong>{$appStatus.phase}</strong> phase while
-              the local UI coordinates the explicit <code>run_mock_transcription</code> command.
+              The UI currently shows the <strong>{$appStatus.phase}</strong> phase while the frontend
+              coordinates explicit <code>start_recording</code>, <code>stop_recording</code>, and
+              <code>cancel_recording</code> commands.
             </p>
           </div>
 
+          <p class:pending={recordingDevicesState === "loading"} class:success={recordingDevicesState === "ready"} class:error={recordingDevicesState === "error"}>
+            {recordingDevicesStatusMessage}
+          </p>
+
+          <div class="history-card-actions">
+            <button
+              type="button"
+              class="ghost-button"
+              on:click={loadRecordingDevices}
+              disabled={recordingDevicesState === "loading" || activeRecordingSession !== null}
+            >
+              {recordingDevicesState === "loading" ? "Loading inputs…" : "Reload microphones"}
+            </button>
+          </div>
+
           <dl class="history-meta draft-meta">
+            <div>
+              <dt>Start command</dt>
+              <dd><code>start_recording</code></dd>
+            </div>
+            <div>
+              <dt>Stop command</dt>
+              <dd><code>stop_recording</code></dd>
+            </div>
+            <div>
+              <dt>Cancel command</dt>
+              <dd><code>cancel_recording</code></dd>
+            </div>
             <div>
               <dt>Mock command</dt>
               <dd><code>run_mock_transcription</code></dd>
             </div>
             <div>
-              <dt>Execution mode</dt>
-              <dd>Local fake transcript only</dd>
-            </div>
-            <div>
-              <dt>History save</dt>
-              <dd>{$settingsDraft.saveTranscriptionHistory ? "Enabled" : "Disabled"}</dd>
-            </div>
-            <div>
-              <dt>Selected microphone</dt>
+              <dt>Preferred microphone</dt>
               <dd>{selectedMicrophoneLabel}</dd>
+            </div>
+            <div>
+              <dt>Loaded devices</dt>
+              <dd>{availableRecordingDevices.length}</dd>
             </div>
           </dl>
         </section>
@@ -648,7 +1012,7 @@
           </div>
           <p>
             This view reads saved transcripts from SQLite through explicit native commands. In Release
-            0.5, mock transcriptions appear here only when saved history is enabled.
+            0.6, only the separate mock transcription flow writes entries here.
           </p>
           <div class="history-toolbar">
             <p class:pending={historyState === "loading"} class:success={historyState === "ready" && historyError === ""} class:error={historyError !== ""}>
@@ -802,11 +1166,25 @@
             <label class="field-label" for="selected-microphone">
               <span>Preferred microphone</span>
               <select id="selected-microphone" class="select-field" value={$settingsDraft.selectedMicrophone} on:change={updateMicrophone}>
-                {#each microphoneOptions as option}
+                {#each $recordingInputOptions as option}
                   <option value={option.value}>{option.label}</option>
                 {/each}
               </select>
             </label>
+          </div>
+
+          <p class:pending={recordingDevicesState === "loading"} class:success={recordingDevicesState === "ready"} class:error={recordingDevicesState === "error"}>
+            {recordingDevicesStatusMessage}
+          </p>
+          <div class="history-card-actions">
+            <button
+              type="button"
+              class="ghost-button"
+              on:click={loadRecordingDevices}
+              disabled={recordingDevicesState === "loading" || activeRecordingSession !== null}
+            >
+              {recordingDevicesState === "loading" ? "Loading inputs…" : "Reload microphones"}
+            </button>
           </div>
 
           <div class="setting-row">
@@ -860,7 +1238,7 @@
             </div>
             <div>
               <dt>Microphone</dt>
-              <dd>{microphoneOptions.find((option) => option.value === $settingsDraft.selectedMicrophone)?.label}</dd>
+              <dd>{selectedMicrophoneLabel}</dd>
             </div>
             <div>
               <dt>Auto-copy</dt>

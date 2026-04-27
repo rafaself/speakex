@@ -1,5 +1,6 @@
 pub mod history_database;
 pub mod history_repository;
+pub mod recorder;
 pub mod transcription;
 
 use std::io;
@@ -14,9 +15,13 @@ use history_repository::{
     ClearHistoryResult, DeleteTranscriptionResult, HistoryRepository, HistoryTranscription,
     HistoryTranscriptionSummary, NewHistoryTranscription,
 };
+use recorder::{
+    ActiveRecordingSession, CancelledRecording, RecorderService, RecordingInputDevice,
+    StoppedRecording,
+};
 use serde::Serialize;
-use tauri::AppHandle;
 use tauri::Manager;
+use tauri::{AppHandle, State};
 use tauri_plugin_store::StoreExt;
 use transcription::{
     AudioInput, MockTranscriptionProvider, Transcript, TranscriptionOptions, TranscriptionService,
@@ -55,6 +60,43 @@ fn clear_history(
     history_database: tauri::State<'_, HistoryDatabase>,
 ) -> Result<ClearHistoryResult, String> {
     HistoryRepository::new(history_database.inner().clone()).clear_history()
+}
+
+#[tauri::command]
+fn list_recording_input_devices(
+    recorder_service: State<'_, RecorderService>,
+) -> Result<Vec<RecordingInputDevice>, String> {
+    recorder_service
+        .list_input_devices()
+        .map_err(|error| format!("failed to list recording input devices: {error}"))
+}
+
+#[tauri::command]
+fn start_recording(
+    device_name: Option<String>,
+    recorder_service: State<'_, RecorderService>,
+) -> Result<ActiveRecordingSession, String> {
+    recorder_service
+        .start(device_name)
+        .map_err(|error| format!("failed to start recording: {error}"))
+}
+
+#[tauri::command]
+fn stop_recording(
+    recorder_service: State<'_, RecorderService>,
+) -> Result<StoppedRecording, String> {
+    recorder_service
+        .stop()
+        .map_err(|error| format!("failed to stop recording: {error}"))
+}
+
+#[tauri::command]
+fn cancel_recording(
+    recorder_service: State<'_, RecorderService>,
+) -> Result<CancelledRecording, String> {
+    recorder_service
+        .cancel()
+        .map_err(|error| format!("failed to cancel recording: {error}"))
 }
 
 #[derive(Clone, Debug)]
@@ -166,6 +208,13 @@ pub fn run() {
                 history_database::initialize(app.handle()).map_err(io::Error::other)?;
 
             app.manage(history_database);
+            let recordings_dir = app
+                .path()
+                .app_cache_dir()
+                .map_err(io::Error::other)?
+                .join("recordings");
+
+            app.manage(RecorderService::new(recordings_dir));
             app.manage(TranscriptionService::new(Arc::new(
                 MockTranscriptionProvider::new(),
             )));
@@ -179,6 +228,10 @@ pub fn run() {
             get_transcription,
             delete_transcription,
             clear_history,
+            list_recording_input_devices,
+            start_recording,
+            stop_recording,
+            cancel_recording,
             run_mock_transcription
         ])
         .run(tauri::generate_context!())

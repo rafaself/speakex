@@ -10,6 +10,17 @@ export interface NavigationSection {
   blurb: string;
 }
 
+export interface RecordedAudioMetadata {
+  sessionId: string;
+  path: string;
+  mimeType: string;
+  durationMs: number | null;
+  inputDeviceName: string;
+  sampleRateHz: number;
+  channels: number;
+  fileSizeBytes: number;
+}
+
 export interface AppStatus {
   phase: RecordingPhase;
   phaseLabel: string;
@@ -19,6 +30,7 @@ export interface AppStatus {
   transcriptPreview: string;
   inputLabel: string;
   durationLabel: string;
+  recordedAudio: RecordedAudioMetadata | null;
 }
 
 export interface ProviderOption {
@@ -26,6 +38,13 @@ export interface ProviderOption {
   label: string;
   blurb: string;
   note: string;
+}
+
+export interface RecordingInputOption {
+  value: string;
+  label: string;
+  isDefault: boolean;
+  unavailable?: boolean;
 }
 
 export type SettingsDraft = AppSettings;

@@ -6,11 +6,18 @@ import type {
   AppSection,
   AppStatus,
   NavigationSection,
+  RecordedAudioMetadata,
+  RecordingInputOption,
   RecordingPhase,
   ProviderId,
   ProviderOption,
   SettingsDraft
 } from "$lib/types/app-shell";
+
+interface RecordingInputDeviceLike {
+  name: string;
+  isDefault: boolean;
+}
 
 export const navigationSections: NavigationSection[] = [
   {
@@ -31,77 +38,126 @@ export const navigationSections: NavigationSection[] = [
 ];
 
 export const recordingPlanSteps = [
-  "Choose an input source and capture audio from the desktop app.",
-  "Review the generated transcript before sending it elsewhere.",
-  "Keep a lightweight local history for quick reuse."
+  "Load the available microphones from Rust before starting capture.",
+  "Record audio into a temporary local WAV file with explicit stop or cancel controls.",
+  "Keep mock transcription separate until a later release wires recorded audio into providers."
 ];
 
 const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
   idle: {
     phase: "idle",
     phaseLabel: "Idle",
-    headline: "Record speech and keep the transcript close at hand.",
+    headline: "Ready to capture a local recording.",
     detail:
-      "Release 0.5 keeps the flow obviously fake while the desktop app calls a narrow Rust command to simulate transcription.",
-    transcriptTitle: "No transcript yet.",
+      "Release 0.6 connects the interface to explicit Rust recorder commands without chaining into transcription yet.",
+    transcriptTitle: "No recorded audio yet.",
     transcriptPreview:
-      "Run the mock transcription flow to fetch a fake transcript from Rust and preview how saved history will behave.",
-    inputLabel: "Default microphone (planned)",
-    durationLabel: "00:00"
+      "Start a recording to create a temporary WAV file, or run the mock transcription flow separately to keep testing the fake provider path.",
+    inputLabel: "System default microphone",
+    durationLabel: "—",
+    recordedAudio: null
   },
   recording: {
     phase: "recording",
     phaseLabel: "Recording",
-    headline: "Mock capture is in progress.",
+    headline: "Recording is in progress.",
     detail:
-      "No audio is being recorded. This state only demonstrates how the interface will look while a future Rust recorder is active.",
-    transcriptTitle: "Listening for speech…",
+      "Audio capture is active through Rust. Use Stop to keep the temporary WAV file or Cancel to discard it.",
+    transcriptTitle: "Live capture in progress…",
     transcriptPreview:
-      "A live waveform or timer is not implemented in Release 0.2. This placeholder simply marks the app as actively recording.",
-    inputLabel: "Desk USB microphone (mock)",
-    durationLabel: "00:18"
+      "The app is recording into a temporary local WAV file. No transcription will run automatically when capture ends.",
+    inputLabel: "System default microphone",
+    durationLabel: "Recording…",
+    recordedAudio: null
   },
   transcribing: {
     phase: "transcribing",
     phaseLabel: "Transcribing",
     headline: "Mock transcription is running.",
     detail:
-      "The frontend is waiting on the explicit Rust mock transcription command. No real audio capture or provider integration happens in this release.",
+      "The frontend is waiting on the explicit Rust mock transcription command. Recorded audio is not sent into this mock flow.",
     transcriptTitle: "Draft transcript incoming…",
     transcriptPreview:
-      "This is still fake on purpose, but the result now comes back through the native mock transcription service.",
-    inputLabel: "Desk USB microphone (mock)",
-    durationLabel: "00:18"
+      "This remains a separate fake provider path on purpose while Release 0.6 focuses on real recording only.",
+    inputLabel: "System default microphone",
+    durationLabel: "—",
+    recordedAudio: null
   },
   completed: {
     phase: "completed",
     phaseLabel: "Completed",
-    headline: "Mock transcript ready.",
+    headline: "Recorded audio is ready.",
     detail:
-      "The mock result finished through Rust. The UI can now show a completed state and reflect whether local history saving was allowed.",
-    transcriptTitle: "Mock transcript preview",
+      "The recording stopped successfully and the temporary WAV file is available for later releases. No transcription ran automatically.",
+    transcriptTitle: "Recorded audio metadata",
     transcriptPreview:
-      "A fake transcript result will appear here after the mock command completes.",
-    inputLabel: "Desk USB microphone (mock)",
-    durationLabel: "00:18"
+      "The capture finished successfully. Review the local audio details below or run the mock transcription flow separately.",
+    inputLabel: "System default microphone",
+    durationLabel: "—",
+    recordedAudio: null
   },
   error: {
     phase: "error",
     phaseLabel: "Error",
-    headline: "Mock failure state surfaced.",
+    headline: "Recording workflow error.",
     detail:
-      "This error is intentionally fake and local-only. It exists so the UI can reserve space for retry guidance and visible failure messaging.",
-    transcriptTitle: "Mock processing error",
+      "The requested recorder action did not finish. The UI keeps the mock transcription path separate from recording errors.",
+    transcriptTitle: "Native recording error",
     transcriptPreview:
-      "The pretend transcription step could not finish. No audio was lost because no recording or provider call actually happened.",
-    inputLabel: "Desk USB microphone (mock)",
-    durationLabel: "00:18"
+      "The recorder command returned an error. Adjust the microphone choice or retry the action.",
+    inputLabel: "System default microphone",
+    durationLabel: "—",
+    recordedAudio: null
   }
 };
 
-const mockPhaseOrder: RecordingPhase[] = ["idle", "recording", "transcribing", "completed"];
-
 const initialAppStatus = appStatusByPhase.idle;
+
+export const defaultRecordingInputOption: RecordingInputOption = {
+  value: "default",
+  label: "System default microphone",
+  isDefault: true
+};
+
+export function createRecordingInputOptions(
+  devices: RecordingInputDeviceLike[],
+  selectedMicrophone: string
+): RecordingInputOption[] {
+  const defaultDevice = devices.find((device) => device.isDefault);
+  const options: RecordingInputOption[] = [
+    {
+      ...defaultRecordingInputOption,
+      label: defaultDevice
+        ? `System default microphone — ${defaultDevice.name}`
+        : defaultRecordingInputOption.label
+    }
+  ];
+  const knownValues = new Set<string>([defaultRecordingInputOption.value]);
+
+  for (const device of devices) {
+    if (knownValues.has(device.name)) {
+      continue;
+    }
+
+    options.push({
+      value: device.name,
+      label: device.isDefault ? `${device.name} (default device)` : device.name,
+      isDefault: device.isDefault
+    });
+    knownValues.add(device.name);
+  }
+
+  if (selectedMicrophone !== "default" && !knownValues.has(selectedMicrophone)) {
+    options.push({
+      value: selectedMicrophone,
+      label: `${selectedMicrophone} (unavailable)`,
+      isDefault: false,
+      unavailable: true
+    });
+  }
+
+  return options;
+}
 
 export function getAppStatusForPhase(
   phase: RecordingPhase,
@@ -110,23 +166,22 @@ export function getAppStatusForPhase(
   return {
     ...appStatusByPhase[phase],
     ...overrides,
-    phase
+    phase,
+    recordedAudio: overrides.recordedAudio ?? appStatusByPhase[phase].recordedAudio
   };
 }
 
 function createAppStatusStore() {
-  const { subscribe, set, update } = writable(initialAppStatus);
+  const { subscribe, set } = writable(initialAppStatus);
 
   return {
     subscribe,
     setStatus: (status: AppStatus) => set(status),
     setPhase: (phase: RecordingPhase) => set(appStatusByPhase[phase]),
-    advance: () =>
-      update((status) => {
-        const currentIndex = mockPhaseOrder.indexOf(status.phase);
-        const nextPhase = mockPhaseOrder[(currentIndex + 1) % mockPhaseOrder.length] ?? "idle";
-
-        return appStatusByPhase[nextPhase];
+    setRecordedAudio: (recordedAudio: RecordedAudioMetadata | null) =>
+      set({
+        ...initialAppStatus,
+        recordedAudio
       }),
     reset: () => set(initialAppStatus)
   };
@@ -166,16 +221,9 @@ export const languageOptions = [
   { value: "pt-BR", label: "Português (Brasil)" }
 ];
 
-export const microphoneOptions = [
-  { value: "default", label: "System default microphone" },
-  { value: "desk-usb", label: "Desk USB microphone" },
-  { value: "headset", label: "Headset microphone" }
-];
-
-export const mockRecordingPhases = mockPhaseOrder.map((phase) => appStatusByPhase[phase]).concat(appStatusByPhase.error);
-
 export const activeSection = writable<AppSection>("recording");
 export const appStatus = createAppStatusStore();
+export const recordingInputOptions = writable<RecordingInputOption[]>([defaultRecordingInputOption]);
 export const settingsDraft = createSettingsDraftStore();
 
 export const providerSelection = {
