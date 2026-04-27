@@ -1,5 +1,7 @@
 import { derived, writable } from "svelte/store";
 
+import { createDefaultAppSettings } from "$lib/settings/schema";
+
 import type {
   AppSection,
   AppStatus,
@@ -119,24 +121,17 @@ function createAppStatusStore() {
   };
 }
 
-const initialSettingsDraft: SettingsDraft = {
-  provider: "gemini",
-  defaultLanguage: "auto",
-  autoCopy: true,
-  saveAudioFiles: false,
-  saveTranscriptionHistory: true,
-  selectedMicrophone: "default"
-};
+const initialSettingsDraft = (): SettingsDraft => createDefaultAppSettings();
 
 export type DraftToggleKey = "autoCopy" | "saveAudioFiles" | "saveTranscriptionHistory";
 
 function createSettingsDraftStore() {
-  const { subscribe, set, update } = writable(initialSettingsDraft);
+  const { subscribe, set, update } = writable(initialSettingsDraft());
 
   return {
     subscribe,
     patch: (value: Partial<SettingsDraft>) => update((draft) => ({ ...draft, ...value })),
-    reset: () => set(initialSettingsDraft),
+    reset: () => set(initialSettingsDraft()),
     toggle: (key: DraftToggleKey) =>
       update((draft) => ({
         ...draft,

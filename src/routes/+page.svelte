@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { get } from "svelte/store";
 
+  import { loadAppSettings, saveAppSettings } from "$lib/native/settings";
   import { ping } from "$lib/native/ping";
   import {
     activeSection,
@@ -16,15 +18,22 @@
     settingsDraft,
     type DraftToggleKey
   } from "$lib/stores/app-shell";
-  import type { RecordingPhase } from "$lib/types/app-shell";
+  import type { ProviderId } from "$lib/settings/schema";
+  import type { RecordingPhase, SettingsDraft } from "$lib/types/app-shell";
 
   type PingState = "idle" | "loading" | "success" | "error";
+  type SettingsState = "idle" | "loading" | "saving" | "error";
 
   const providerLabels = new Map(providerOptions.map((provider) => [provider.id, provider.label]));
 
   let pingState: PingState = "idle";
   let pingResponse = "";
   let pingError = "";
+  let settingsState: SettingsState = "loading";
+  let settingsError = "";
+  let lastSavedSettings: SettingsDraft | null = null;
+  let settingsSaveQueue = Promise.resolve();
+  let latestSettingsRequest = 0;
 
   $: selectedProviderLabel = providerLabels.get($providerSelection) ?? "Unknown provider";
   $: primaryMockActionLabel =
@@ -35,6 +44,14 @@
         : $appStatus.phase === "transcribing"
           ? "Show completed"
           : "Restart mock flow";
+  $: settingsStatusMessage =
+    settingsState === "loading"
+      ? "Loading saved preferences…"
+      : settingsState === "saving"
+        ? "Saving changes locally…"
+        : settingsState === "error"
+          ? settingsError
+          : "Preferences are stored locally on this device.";
 
   async function runPing() {
     pingState = "loading";
@@ -50,16 +67,88 @@
     }
   }
 
+  async function hydrateSettings() {
+    settingsState = "loading";
+    settingsError = "";
+
+    try {
+      const persistedSettings = await loadAppSettings();
+
+      settingsDraft.patch(persistedSettings);
+      lastSavedSettings = persistedSettings;
+      settingsState = "idle";
+    } catch (error) {
+      settingsError = error instanceof Error ? error.message : "Unable to load saved preferences";
+      settingsState = "error";
+    }
+  }
+
+  async function persistSettings(nextSettings: SettingsDraft) {
+    const requestId = ++latestSettingsRequest;
+
+    settingsDraft.patch(nextSettings);
+    settingsState = "saving";
+    settingsError = "";
+
+    const saveOperation = settingsSaveQueue
+      .catch(() => undefined)
+      .then(() => saveAppSettings(nextSettings));
+
+    settingsSaveQueue = saveOperation.then(
+      () => undefined,
+      () => undefined
+    );
+
+    try {
+      const persistedSettings = await saveOperation;
+
+      lastSavedSettings = persistedSettings;
+
+      if (requestId !== latestSettingsRequest) {
+        return;
+      }
+
+      settingsDraft.patch(persistedSettings);
+      settingsState = "idle";
+    } catch (error) {
+      if (requestId !== latestSettingsRequest) {
+        return;
+      }
+
+      settingsError = error instanceof Error ? error.message : "Unable to save preferences";
+      settingsState = "error";
+
+      if (lastSavedSettings) {
+        settingsDraft.patch(lastSavedSettings);
+      }
+    }
+  }
+
+  function updateProvider(provider: ProviderId) {
+    void persistSettings({ ...get(settingsDraft), provider });
+  }
+
   function updateLanguage(event: Event) {
-    settingsDraft.patch({ defaultLanguage: (event.currentTarget as HTMLSelectElement).value });
+    void persistSettings({
+      ...get(settingsDraft),
+      defaultLanguage: (event.currentTarget as HTMLSelectElement).value
+    });
   }
 
   function updateMicrophone(event: Event) {
-    settingsDraft.patch({ selectedMicrophone: (event.currentTarget as HTMLSelectElement).value });
+    void persistSettings({
+      ...get(settingsDraft),
+      selectedMicrophone: (event.currentTarget as HTMLSelectElement).value
+    });
   }
 
   function toggleSetting(key: DraftToggleKey) {
-    settingsDraft.toggle(key);
+    const draft = get(settingsDraft);
+
+    void persistSettings({
+      ...draft,
+      [key]: !draft[key]
+    });
   }
 
   function setMockPhase(phase: RecordingPhase) {
@@ -85,6 +174,7 @@
 
   onMount(() => {
     void runPing();
+    void hydrateSettings();
   });
 </script>
 
@@ -99,11 +189,11 @@
 <main class="app-shell">
   <aside class="sidebar">
     <div class="brand-block">
-      <p class="eyebrow">Release 0.2</p>
+      <p class="eyebrow">Release 0.3</p>
       <h1>SpeakEx</h1>
       <p class="brand-copy">
-        Local-first transcription for the desktop. This release establishes the structure of the app
-        without enabling real recording, history, or settings persistence yet.
+        Local-first transcription for the desktop. This release keeps the shell in place while storing
+        non-sensitive settings locally between app launches.
       </p>
     </div>
 
@@ -160,7 +250,8 @@
         {:else if $activeSection === "history"}
           Placeholder history rows now come from frontend store data instead of inline page content.
         {:else}
-          Provider selection and preferences live in a local draft store until persistence arrives.
+          Provider selection and preferences now hydrate from local storage and save back through the
+          settings access layer.
         {/if}
       </p>
     </header>
@@ -351,10 +442,13 @@
       <div class="view-grid placeholder-grid settings-grid">
         <section class="card empty-card">
           <p class="label">Settings</p>
-          <h3>Local draft only</h3>
+          <h3>Local persistence enabled</h3>
           <p>
-            These controls update Svelte stores in memory so the shell can model future settings
-            screens without saving anything to disk yet.
+            Non-sensitive preferences load on startup, missing values are initialized with safe
+            defaults, and changes save locally on this device.
+          </p>
+          <p class:pending={settingsState === "loading" || settingsState === "saving"} class:success={settingsState === "idle"} class:error={settingsState === "error"}>
+            {settingsStatusMessage}
           </p>
         </section>
 
@@ -368,7 +462,7 @@
                 class="provider-button"
                 class:active={$providerSelection === option.id}
                 aria-pressed={$providerSelection === option.id}
-                on:click={() => providerSelection.set(option.id)}
+                on:click={() => updateProvider(option.id)}
               >
                 <span>{option.label}</span>
                 <small>{option.blurb}</small>
@@ -380,7 +474,7 @@
 
         <section class="card list-card">
           <p class="label">Defaults</p>
-          <h3>Mock preference draft</h3>
+          <h3>Saved preferences</h3>
 
           <div class="field-grid">
             <label class="field-label" for="default-language">
@@ -405,7 +499,7 @@
           <div class="setting-row">
             <div>
               <h4>Auto-copy transcript</h4>
-              <p>Tracked as draft state only until native clipboard support exists.</p>
+              <p>Preference is stored now; clipboard execution still arrives in a later release.</p>
             </div>
             <button type="button" class="toggle-button" class:active={$settingsDraft.autoCopy} aria-pressed={$settingsDraft.autoCopy} on:click={() => toggleSetting("autoCopy")}>
               {$settingsDraft.autoCopy ? "On" : "Off"}
@@ -415,7 +509,7 @@
           <div class="setting-row">
             <div>
               <h4>Save transcription history</h4>
-              <p>Controls the future UX model only. No persistence is implemented yet.</p>
+              <p>Preference is stored now so later history work can follow the saved app setting.</p>
             </div>
             <button
               type="button"
@@ -431,7 +525,7 @@
           <div class="setting-row">
             <div>
               <h4>Save audio files</h4>
-              <p>Visible now so later native storage work has a clear destination.</p>
+              <p>Preference is stored now so later native storage work has a clear destination.</p>
             </div>
             <button type="button" class="toggle-button" class:active={$settingsDraft.saveAudioFiles} aria-pressed={$settingsDraft.saveAudioFiles} on:click={() => toggleSetting("saveAudioFiles")}>
               {$settingsDraft.saveAudioFiles ? "On" : "Off"}
@@ -440,8 +534,8 @@
         </section>
 
         <section class="card list-card">
-          <p class="label">Draft snapshot</p>
-          <h3>Current in-memory values</h3>
+          <p class="label">Persisted snapshot</p>
+          <h3>Current settings values</h3>
           <dl class="history-meta draft-meta">
             <div>
               <dt>Provider</dt>

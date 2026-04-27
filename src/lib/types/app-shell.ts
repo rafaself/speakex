@@ -1,8 +1,8 @@
+import type { AppSettings, ProviderId } from "$lib/settings/schema";
+
 export type AppSection = "recording" | "history" | "settings";
 
 export type RecordingPhase = "idle" | "recording" | "transcribing" | "completed" | "error";
-
-export type ProviderId = "gemini";
 
 export interface NavigationSection {
   id: AppSection;
@@ -28,14 +28,9 @@ export interface ProviderOption {
   note: string;
 }
 
-export interface SettingsDraft {
-  provider: ProviderId;
-  defaultLanguage: string;
-  autoCopy: boolean;
-  saveAudioFiles: boolean;
-  saveTranscriptionHistory: boolean;
-  selectedMicrophone: string;
-}
+export type SettingsDraft = AppSettings;
+
+export type { ProviderId };
 
 export interface HistoryEntry {
   id: string;
