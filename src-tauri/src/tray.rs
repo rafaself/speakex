@@ -8,7 +8,7 @@ use tauri::{
 };
 use tauri_plugin_store::StoreExt;
 
-const MAIN_WINDOW_LABEL: &str = "main";
+pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_ID: &str = "main-tray";
 const SETTINGS_STORE_PATH: &str = "settings.json";
 const SELECTED_MICROPHONE_KEY: &str = "selected_microphone";

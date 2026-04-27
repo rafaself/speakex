@@ -1,6 +1,7 @@
 pub mod history_database;
 pub mod history_repository;
 pub mod manual_flow;
+mod notifications;
 pub mod recorder;
 pub mod secret_store;
 pub mod shortcut;
@@ -231,24 +232,35 @@ async fn run_completed_recording_transcription(
     secret_store_service: State<'_, SecretStoreService>,
 ) -> Result<RunCompletedRecordingTranscriptionResult, String> {
     let settings = load_transcription_settings(&app)?;
-
-    ManualTranscriptionFlow::new(
+    let manual_flow = ManualTranscriptionFlow::new(
         TranscriptionService::new(Arc::new(GeminiProvider::new(
             secret_store_service.inner().clone(),
         ))),
         HistoryRepository::new(history_database.inner().clone()),
-        app,
-    )
-    .run(
-        request.audio_input,
-        ManualTranscriptionSettings {
-            default_language: settings.default_language,
-            auto_copy: settings.auto_copy,
-            save_audio_files: settings.save_audio_files,
-            save_transcription_history: settings.save_transcription_history,
-        },
-    )
-    .await
+        app.clone(),
+    );
+
+    match manual_flow
+        .run(
+            request.audio_input,
+            ManualTranscriptionSettings {
+                default_language: settings.default_language,
+                auto_copy: settings.auto_copy,
+                save_audio_files: settings.save_audio_files,
+                save_transcription_history: settings.save_transcription_history,
+            },
+        )
+        .await
+    {
+        Ok(result) => {
+            notifications::notify_manual_transcription_completed(&app);
+            Ok(result)
+        }
+        Err(error) => {
+            notifications::notify_manual_transcription_failed(&app, &error);
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -384,6 +396,7 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![

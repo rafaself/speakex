@@ -98,6 +98,14 @@
   const providerLabels = new Map(providerOptions.map((provider) => [provider.id, provider.label]));
   const fallbackRecordingLimitMs = 15 * 60 * 1000;
   const recordingStatusPollIntervalMs = 1000;
+  const hiddenManualNotificationReadyMessage =
+    "If SpeakEx is hidden when a manual transcription finishes or fails, Rust can also send a desktop notification.";
+  const hiddenManualNotificationPendingMessage =
+    "If SpeakEx is hidden before the manual run finishes, Rust can also send a desktop notification for completion or failure.";
+  const hiddenManualNotificationCompletedMessage =
+    "If SpeakEx was hidden when this manual transcription finished, Rust may also have shown a desktop notification.";
+  const hiddenManualNotificationFailedMessage =
+    "If SpeakEx was hidden when this manual transcription failed, Rust may also have shown a desktop notification.";
 
   let pingState: PingState = "idle";
   let pingResponse = "";
@@ -337,8 +345,8 @@
   $: manualTranscriptionStatusMessage =
     latestManualTranscriptionResult !== null
       ? manualTranscriptionWarnings.length === 0
-        ? "Manual transcription finished. Review the clipboard, history, and audio outcomes below."
-        : "Manual transcription finished with warnings. Review the clipboard, history, and audio outcomes below."
+        ? `Manual transcription finished. Review the clipboard, history, and audio outcomes below. ${hiddenManualNotificationCompletedMessage}`
+        : `Manual transcription finished with warnings. Review the clipboard, history, and audio outcomes below. ${hiddenManualNotificationCompletedMessage}`
       : transcribableRecordedAudio === null
         ? "Complete a local recording first, then run transcription manually from this screen."
         : geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"
@@ -348,8 +356,8 @@
             : !geminiApiKeyPresence
               ? "Save a Gemini API key in Settings before running Gemini on the current recording."
               : isRunningManualTranscription
-                ? "Gemini is transcribing the current local recording in Rust. Clipboard, history, and audio cleanup follow the saved settings."
-                : "Gemini can transcribe the current completed local recording on demand through the full Rust manual flow.";
+                ? `Gemini is transcribing the current local recording in Rust. Clipboard, history, and audio cleanup follow the saved settings. ${hiddenManualNotificationPendingMessage}`
+                : `Gemini can transcribe the current completed local recording on demand through the full Rust manual flow. ${hiddenManualNotificationReadyMessage}`;
   $: canStartRecording =
     recordingDevicesState === "ready" &&
     recordingCommandState === null &&
@@ -1201,7 +1209,7 @@
         headline: "Manual transcription is running.",
         inputLabel: transcribableRecordedAudio.inputDeviceName,
         detail:
-          "The frontend is waiting on the explicit Rust manual transcription command for the current completed WAV file. Rust will also handle clipboard, history, and default audio cleanup.",
+          "The frontend is waiting on the explicit Rust manual transcription command for the current completed WAV file. Rust will also handle clipboard, history, default audio cleanup, and any hidden-window completion or failure notifications.",
         transcriptTitle: "Transcript incoming…",
         transcriptPreview: `${formatFileName(transcribableRecordedAudio.path)} is being transcribed through the explicit Rust manual flow.`,
         durationLabel: formatDuration(transcribableRecordedAudio.durationMs),
@@ -1232,7 +1240,7 @@
           inputLabel: transcribableRecordedAudio.inputDeviceName,
           detail: error instanceof Error ? error.message : "Unable to finish the manual transcription flow.",
           transcriptPreview:
-            "The explicit manual transcription command did not finish. The current recording remains local and no follow-up side effects were applied.",
+            `The explicit manual transcription command did not finish. The current recording remains local and no follow-up side effects were applied. ${hiddenManualNotificationFailedMessage}`,
           durationLabel: formatDuration(transcribableRecordedAudio.durationMs),
           recordingTiming: buildRecordingTimingFromRecordedAudio(transcribableRecordedAudio),
           recordedAudio: transcribableRecordedAudio
@@ -1410,7 +1418,7 @@
 
     return getAppStatusForPhase("completed", {
       headline: "Mock transcript ready.",
-      detail: `${historyDetail} The result remains intentionally fake and separate from the Release 1.1 manual Gemini flow.`,
+      detail: `${historyDetail} The result remains intentionally fake and separate from the Release 1.4 manual Gemini flow.`,
       transcriptTitle: result.savedToHistory
         ? "Mock transcript saved locally"
         : "Mock transcript kept in memory only",
@@ -1436,7 +1444,7 @@
 
     return getAppStatusForPhase("completed", {
       headline: warnings.length === 0 ? "Transcript ready." : "Transcript ready with warnings.",
-      detail: outcomeSummary,
+      detail: `${outcomeSummary} ${hiddenManualNotificationCompletedMessage}`,
       transcriptTitle: result.historySaved
         ? warnings.length === 0
           ? "Transcript saved locally"
@@ -1768,18 +1776,19 @@
   <title>SpeakEx — Audio Recording</title>
   <meta
     name="description"
-    content="SpeakEx desktop app shell with real audio recording, manual transcription flow, history, and settings views."
+    content="SpeakEx desktop app shell with real audio recording, manual transcription flow, hidden-window transcription notifications, history, and settings views."
   />
 </svelte:head>
 
 <main class="app-shell">
   <aside class="sidebar">
     <div class="brand-block">
-      <p class="eyebrow">Release 1.1</p>
+      <p class="eyebrow">Release 1.4</p>
       <h1>SpeakEx</h1>
       <p class="brand-copy">
-        Local-first transcription for the desktop. Release 1.1 keeps the manual flow intact while
-        making clipboard, history, and saved-entry outcomes easier to understand.
+        Local-first transcription for the desktop. Release 1.4 keeps the manual flow intact while
+        explaining clipboard, history, audio cleanup, and hidden-window transcription notifications
+        more clearly.
       </p>
     </div>
 
@@ -1833,7 +1842,8 @@
         <p class="workspace-copy">
           {#if $activeSection === "recording"}
           The recording workspace keeps manual transcription explicit and now explains clipboard,
-          history, and audio outcomes more clearly after each run.
+          history, audio outcomes, and hidden-window completion or failure notifications more
+          clearly after each run.
         {:else if $activeSection === "history"}
           Saved transcript history loads from the local database, and the selected detail panel now
           shows the full transcript plus stored clipboard and audio outcomes.
@@ -1855,7 +1865,8 @@
             <p class:pending={recordingDevicesState === "loading"} class:success={recordingDevicesState === "ready"} class:error={recordingDevicesState === "error"}>
               {recordingDevicesStatusMessage}
             </p>
-            <p class="phase-note">Release 1.1 keeps recording explicit. Stop still only creates a completed local recording until you transcribe manually.</p>
+            <p class="phase-note">Release 1.4 keeps recording explicit. Stop still only creates a completed local recording until you transcribe manually.</p>
+            <p class="phase-note">Desktop notifications only cover manual transcription completion or failure while SpeakEx is hidden.</p>
             <p class="phase-note"><strong>{recordingLimitLabel}</strong> · Elapsed {elapsedTimeLabel} · Remaining {remainingTimeLabel}</p>
             <p class="phase-note">{mockHistoryModeLabel}</p>
           </div>

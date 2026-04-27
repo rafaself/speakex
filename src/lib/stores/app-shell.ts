@@ -40,7 +40,7 @@ export const navigationSections: NavigationSection[] = [
 export const recordingPlanSteps = [
   "Load the available microphones from Rust before starting capture.",
   "Poll explicit recorder status while capture is active so the UI can show elapsed, remaining, and max duration safely.",
-  "Keep stopping explicit so a completed local recording only transcribes when the user manually runs the Release 1.1 Rust flow."
+  "Keep stopping explicit so a completed local recording only transcribes when the user manually runs the Release 1.4 Rust flow, with desktop notifications limited to hidden-window manual completion or failure."
 ];
 
 const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
@@ -49,7 +49,7 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Idle",
     headline: "Ready to capture a local recording.",
     detail:
-      "Release 1.1 keeps recording explicit while the manual Rust transcription flow owns Gemini execution, clipboard, history, and default audio cleanup.",
+      "Release 1.4 keeps recording explicit while the manual Rust transcription flow owns Gemini execution, clipboard, history, default audio cleanup, and hidden-window completion or failure notifications.",
     transcriptTitle: "No recorded audio yet.",
     transcriptPreview:
       "Start a recording to create a temporary WAV file, then run either the separate mock path or the explicit manual transcription flow once audio is ready.",
@@ -80,7 +80,7 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
       "The frontend is waiting on the explicit Rust mock transcription command. Recorded audio is not sent into this mock flow.",
     transcriptTitle: "Draft transcript incoming…",
     transcriptPreview:
-      "Transcription remains explicit in Release 1.1 so mock and manual Gemini runs stay separate from the recording lifecycle.",
+      "Transcription remains explicit in Release 1.4 so mock and manual Gemini runs stay separate from the recording lifecycle.",
     inputLabel: "System default microphone",
     durationLabel: "—",
     recordingTiming: null,
