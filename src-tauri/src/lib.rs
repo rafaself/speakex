@@ -1,5 +1,6 @@
 pub mod history_database;
 pub mod history_repository;
+pub mod manual_flow;
 pub mod recorder;
 pub mod secret_store;
 pub mod transcription;
@@ -15,6 +16,9 @@ use history_database::HistoryDatabase;
 use history_repository::{
     ClearHistoryResult, DeleteTranscriptionResult, HistoryRepository, HistoryTranscription,
     HistoryTranscriptionSummary, NewHistoryTranscription,
+};
+use manual_flow::{
+    ManualTranscriptionFlow, ManualTranscriptionSettings, RunCompletedRecordingTranscriptionResult,
 };
 use recorder::{
     ActiveRecordingSession, CancelledRecording, RecorderService, RecorderSnapshot,
@@ -138,8 +142,10 @@ fn clear_gemini_api_key(
 }
 
 #[derive(Clone, Debug)]
-struct MockTranscriptionSettings {
+struct TranscriptionSettings {
+    auto_copy: bool,
     save_transcription_history: bool,
+    save_audio_files: bool,
     default_language: Option<String>,
 }
 
@@ -158,6 +164,12 @@ struct RunGeminiTranscriptionRequest {
     options: TranscriptionOptions,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RunCompletedRecordingTranscriptionRequest {
+    audio_input: AudioInput,
+}
+
 #[tauri::command]
 async fn run_gemini_transcription(
     request: RunGeminiTranscriptionRequest,
@@ -172,12 +184,40 @@ async fn run_gemini_transcription(
 }
 
 #[tauri::command]
+async fn run_completed_recording_transcription(
+    app: AppHandle,
+    request: RunCompletedRecordingTranscriptionRequest,
+    history_database: tauri::State<'_, HistoryDatabase>,
+    secret_store_service: State<'_, SecretStoreService>,
+) -> Result<RunCompletedRecordingTranscriptionResult, String> {
+    let settings = load_transcription_settings(&app)?;
+
+    ManualTranscriptionFlow::new(
+        TranscriptionService::new(Arc::new(GeminiProvider::new(
+            secret_store_service.inner().clone(),
+        ))),
+        HistoryRepository::new(history_database.inner().clone()),
+        app,
+    )
+    .run(
+        request.audio_input,
+        ManualTranscriptionSettings {
+            default_language: settings.default_language,
+            auto_copy: settings.auto_copy,
+            save_audio_files: settings.save_audio_files,
+            save_transcription_history: settings.save_transcription_history,
+        },
+    )
+    .await
+}
+
+#[tauri::command]
 async fn run_mock_transcription(
     app: AppHandle,
     history_database: tauri::State<'_, HistoryDatabase>,
     transcription_service: tauri::State<'_, TranscriptionService>,
 ) -> Result<RunMockTranscriptionResult, String> {
-    let settings = load_mock_transcription_settings(&app)?;
+    let settings = load_transcription_settings(&app)?;
     let service = transcription_service.inner().clone();
     let history_repository = HistoryRepository::new(history_database.inner().clone());
     let transcript = service
@@ -217,11 +257,19 @@ async fn run_mock_transcription(
     })
 }
 
-fn load_mock_transcription_settings(app: &AppHandle) -> Result<MockTranscriptionSettings, String> {
+fn load_transcription_settings(app: &AppHandle) -> Result<TranscriptionSettings, String> {
     let store = app
         .store("settings.json")
         .map_err(|error| format!("failed to open settings store: {error}"))?;
 
+    let auto_copy = store
+        .get("auto_copy")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
+    let save_audio_files = store
+        .get("save_audio_files")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
     let save_transcription_history = store
         .get("save_transcription_history")
         .and_then(|value| value.as_bool())
@@ -231,8 +279,10 @@ fn load_mock_transcription_settings(app: &AppHandle) -> Result<MockTranscription
         .and_then(|value| value.as_str().map(str::trim).map(ToOwned::to_owned))
         .filter(|value| !value.is_empty() && value != "auto");
 
-    Ok(MockTranscriptionSettings {
+    Ok(TranscriptionSettings {
+        auto_copy,
         save_transcription_history,
+        save_audio_files,
         default_language,
     })
 }
@@ -282,6 +332,7 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             ping,
             get_history,
@@ -297,6 +348,7 @@ pub fn run() {
             has_gemini_api_key,
             clear_gemini_api_key,
             run_gemini_transcription,
+            run_completed_recording_transcription,
             run_mock_transcription
         ])
         .run(tauri::generate_context!())

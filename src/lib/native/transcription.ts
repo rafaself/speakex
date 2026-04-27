@@ -14,33 +14,33 @@ export interface TranscriptionAudioInput {
   durationMs: number | null;
 }
 
-export interface TranscriptionOptions {
-  language?: string | null;
-  prompt?: string | null;
-  model?: string | null;
-}
-
 export interface RunMockTranscriptionResult {
   transcript: Transcript;
   savedToHistory: boolean;
+}
+
+export interface RunCompletedRecordingTranscriptionResult {
+  transcript: Transcript;
+  historyId: string | null;
+  historySaved: boolean;
+  historyError: string | null;
+  copiedToClipboard: boolean;
+  clipboardError: string | null;
+  audioDeleted: boolean;
+  audioDeleteError: string | null;
+  retainedAudioPath: string | null;
 }
 
 export async function runMockTranscription(): Promise<RunMockTranscriptionResult> {
   return invoke<RunMockTranscriptionResult>("run_mock_transcription");
 }
 
-export async function runGeminiTranscription(
-  audioInput: TranscriptionAudioInput,
-  options: TranscriptionOptions = {}
-): Promise<Transcript> {
-  return invoke<Transcript>("run_gemini_transcription", {
+export async function runCompletedRecordingTranscription(
+  audioInput: TranscriptionAudioInput
+): Promise<RunCompletedRecordingTranscriptionResult> {
+  return invoke<RunCompletedRecordingTranscriptionResult>("run_completed_recording_transcription", {
     request: {
-      audioInput,
-      options: {
-        language: options.language ?? null,
-        prompt: options.prompt ?? null,
-        model: options.model ?? null
-      }
+      audioInput
     }
   });
 }

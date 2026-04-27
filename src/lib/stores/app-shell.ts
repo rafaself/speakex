@@ -40,7 +40,7 @@ export const navigationSections: NavigationSection[] = [
 export const recordingPlanSteps = [
   "Load the available microphones from Rust before starting capture.",
   "Poll explicit recorder status while capture is active so the UI can show elapsed, remaining, and max duration safely.",
-  "Keep mock transcription separate while Release 0.9 adds an explicit Gemini path for completed local recordings."
+  "Keep stopping explicit so a completed local recording only transcribes when the user manually runs the full Rust MVP flow."
 ];
 
 const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
@@ -49,10 +49,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Idle",
     headline: "Ready to capture a local recording.",
     detail:
-      "Release 0.9 keeps recording explicit while adding a manual Gemini transcription path for completed local recordings.",
+      "Release 1.0 keeps recording explicit while the manual Rust transcription flow owns Gemini execution, clipboard, history, and default audio cleanup.",
     transcriptTitle: "No recorded audio yet.",
     transcriptPreview:
-      "Start a recording to create a temporary WAV file, then run either the separate mock path or the explicit Gemini path once audio is ready.",
+      "Start a recording to create a temporary WAV file, then run either the separate mock path or the explicit manual transcription flow once audio is ready.",
     inputLabel: "System default microphone",
     durationLabel: "—",
     recordingTiming: null,
@@ -80,7 +80,7 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
       "The frontend is waiting on the explicit Rust mock transcription command. Recorded audio is not sent into this mock flow.",
     transcriptTitle: "Draft transcript incoming…",
     transcriptPreview:
-      "Transcription remains explicit in Release 0.9 so mock and Gemini runs stay manual and separate from the recording lifecycle.",
+      "Transcription remains explicit in Release 1.0 so mock and manual Gemini runs stay separate from the recording lifecycle.",
     inputLabel: "System default microphone",
     durationLabel: "—",
     recordingTiming: null,
@@ -91,10 +91,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Completed",
     headline: "Recorded audio is ready.",
     detail:
-      "The recording stopped successfully and the temporary WAV file is ready for an explicit mock or Gemini transcription request. No transcription ran automatically.",
+      "The recording stopped successfully and the temporary WAV file is ready for an explicit mock or manual transcription request. No transcription ran automatically.",
     transcriptTitle: "Recorded audio metadata",
     transcriptPreview:
-      "The capture finished successfully. Review the local audio details below, then choose either the mock path or Gemini manually.",
+      "The capture finished successfully. Review the local audio details below, then choose either the mock path or the full manual transcription flow.",
     inputLabel: "System default microphone",
     durationLabel: "—",
     recordingTiming: null,
@@ -217,8 +217,8 @@ export const providerOptions: ProviderOption[] = [
   {
     id: "gemini",
     label: "Gemini",
-    blurb: "Remote provider planned for the first MVP path.",
-    note: "Store the API key in the OS keychain here; the recording screen can then invoke Gemini manually for a completed recording."
+    blurb: "Remote provider used for the first MVP path.",
+    note: "Store the API key in the OS keychain here so the manual recording flow can transcribe, optionally copy, save history, and clean up audio."
   }
 ];
 
