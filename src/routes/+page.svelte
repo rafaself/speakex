@@ -8,6 +8,11 @@
     getHistory,
     type HistoryTranscriptionSummary
   } from "$lib/native/history";
+  import {
+    clearGeminiApiKey,
+    hasGeminiApiKey,
+    saveGeminiApiKey
+  } from "$lib/native/secret-store";
   import { loadAppSettings, saveAppSettings } from "$lib/native/settings";
   import { ping } from "$lib/native/ping";
   import {
@@ -41,7 +46,13 @@
     type DraftToggleKey
   } from "$lib/stores/app-shell";
   import type { ProviderId } from "$lib/settings/schema";
-  import type { RecordedAudioMetadata, RecordingTiming, SettingsDraft } from "$lib/types/app-shell";
+  import type {
+    GeminiApiKeyActionState,
+    GeminiApiKeyPresenceState,
+    RecordedAudioMetadata,
+    RecordingTiming,
+    SettingsDraft
+  } from "$lib/types/app-shell";
 
   type PingState = "idle" | "loading" | "success" | "error";
   type SettingsState = "idle" | "loading" | "saving" | "error";
@@ -77,6 +88,11 @@
   let lastSavedSettings: SettingsDraft | null = null;
   let settingsSaveQueue = Promise.resolve();
   let latestSettingsRequest = 0;
+  let geminiApiKeyDraft = "";
+  let geminiApiKeyPresence = false;
+  let geminiApiKeyPresenceState: GeminiApiKeyPresenceState = "loading";
+  let geminiApiKeyActionState: GeminiApiKeyActionState = "checking";
+  let geminiApiKeyStatusDetail = "";
   let historyState: HistoryState = "loading";
   let historyEntries: HistoryEntryViewModel[] = [];
   let historyError = "";
@@ -117,7 +133,44 @@
         ? "Saving changes locally…"
         : settingsState === "error"
           ? settingsError
-          : "Preferences are stored locally on this device.";
+          : "Preferences are stored locally and secrets stay in the OS keychain.";
+  $: geminiApiKeyDraftValue = geminiApiKeyDraft.trim();
+  $: isGeminiApiKeyBusy =
+    geminiApiKeyActionState === "checking" ||
+    geminiApiKeyActionState === "saving" ||
+    geminiApiKeyActionState === "clearing";
+  $: geminiApiKeyPrimaryActionLabel =
+    geminiApiKeyActionState === "saving"
+      ? geminiApiKeyPresence
+        ? "Replacing…"
+        : "Saving…"
+      : geminiApiKeyPresence
+        ? "Replace saved key"
+        : "Save key";
+  $: geminiApiKeyStatusMessage =
+    geminiApiKeyActionState === "checking"
+      ? "Checking the OS keychain for a saved Gemini API key…"
+      : geminiApiKeyActionState === "saving"
+        ? "Saving the Gemini API key to the OS keychain…"
+        : geminiApiKeyActionState === "clearing"
+          ? "Clearing the Gemini API key from the OS keychain…"
+          : geminiApiKeyPresenceState === "error"
+            ? geminiApiKeyStatusDetail
+            : geminiApiKeyStatusDetail !== ""
+              ? geminiApiKeyStatusDetail
+              : geminiApiKeyPresenceState === "loading"
+                ? "Checking the OS keychain for a saved Gemini API key…"
+                : geminiApiKeyPresence
+                  ? "Gemini API key is saved in the OS keychain."
+                  : "No Gemini API key is saved in the OS keychain.";
+  $: geminiApiKeySavedLabel =
+    geminiApiKeyPresenceState === "loading"
+      ? "Checking…"
+      : geminiApiKeyPresenceState === "error"
+        ? "Status unavailable"
+        : geminiApiKeyPresence
+          ? "Saved in OS keychain"
+          : "Not saved";
   $: historyStatusMessage =
     historyState === "loading"
       ? "Loading transcript history from the local database…"
@@ -186,7 +239,7 @@
   }
 
   async function initializeWorkspace() {
-    await hydrateSettings();
+    await Promise.all([hydrateSettings(), refreshGeminiApiKeyPresence(false)]);
     await loadRecordingDevices();
     await syncRecorderFromNative(true);
 
@@ -208,6 +261,36 @@
     } catch (error) {
       settingsError = error instanceof Error ? error.message : "Unable to load saved preferences";
       settingsState = "error";
+    }
+  }
+
+  async function refreshGeminiApiKeyPresence(showFeedback = true) {
+    if (geminiApiKeyActionState === "saving" || geminiApiKeyActionState === "clearing") {
+      return;
+    }
+
+    geminiApiKeyActionState = "checking";
+    geminiApiKeyPresenceState = "loading";
+
+    if (showFeedback) {
+      geminiApiKeyStatusDetail = "";
+    }
+
+    try {
+      geminiApiKeyPresence = await hasGeminiApiKey();
+      geminiApiKeyPresenceState = geminiApiKeyPresence ? "present" : "missing";
+      geminiApiKeyActionState = "idle";
+
+      if (showFeedback) {
+        geminiApiKeyStatusDetail = geminiApiKeyPresence
+          ? "Gemini API key is available in the OS keychain."
+          : "No Gemini API key is saved in the OS keychain.";
+      }
+    } catch (error) {
+      geminiApiKeyPresenceState = "error";
+      geminiApiKeyActionState = "error";
+      geminiApiKeyStatusDetail =
+        error instanceof Error ? error.message : "Unable to check the Gemini API key status.";
     }
   }
 
@@ -509,6 +592,59 @@
       ...draft,
       [key]: !draft[key]
     });
+  }
+
+  async function submitGeminiApiKey() {
+    if (isGeminiApiKeyBusy || geminiApiKeyDraftValue.length === 0) {
+      return;
+    }
+
+    const replacingExistingKey = geminiApiKeyPresence;
+
+    geminiApiKeyActionState = "saving";
+    geminiApiKeyStatusDetail = "";
+
+    try {
+      await saveGeminiApiKey(geminiApiKeyDraftValue);
+      geminiApiKeyDraft = "";
+      geminiApiKeyPresence = true;
+      geminiApiKeyPresenceState = "present";
+      geminiApiKeyActionState = "idle";
+      geminiApiKeyStatusDetail = replacingExistingKey
+        ? "Gemini API key replaced in the OS keychain."
+        : "Gemini API key saved to the OS keychain.";
+    } catch (error) {
+      geminiApiKeyActionState = "error";
+      geminiApiKeyPresenceState = geminiApiKeyPresence ? "present" : "missing";
+      geminiApiKeyStatusDetail =
+        error instanceof Error ? error.message : "Unable to save the Gemini API key.";
+    }
+  }
+
+  async function removeGeminiApiKey() {
+    if (isGeminiApiKeyBusy || !geminiApiKeyPresence) {
+      return;
+    }
+
+    geminiApiKeyActionState = "clearing";
+    geminiApiKeyStatusDetail = "";
+
+    try {
+      const cleared = await clearGeminiApiKey();
+
+      geminiApiKeyDraft = "";
+      geminiApiKeyPresence = false;
+      geminiApiKeyPresenceState = "missing";
+      geminiApiKeyActionState = "idle";
+      geminiApiKeyStatusDetail = cleared
+        ? "Gemini API key cleared from the OS keychain."
+        : "No Gemini API key was stored in the OS keychain.";
+    } catch (error) {
+      geminiApiKeyActionState = "error";
+      geminiApiKeyPresenceState = geminiApiKeyPresence ? "present" : "missing";
+      geminiApiKeyStatusDetail =
+        error instanceof Error ? error.message : "Unable to clear the Gemini API key.";
+    }
   }
 
   async function beginRecording() {
@@ -1397,8 +1533,8 @@
           <p class="label">Settings</p>
           <h3>Local persistence enabled</h3>
           <p>
-            Non-sensitive preferences load on startup, missing values are initialized with safe
-            defaults, and changes save locally on this device.
+            Non-sensitive preferences load on startup with safe defaults, while the Gemini API key
+            is managed separately in the OS keychain.
           </p>
           <p class:pending={settingsState === "loading" || settingsState === "saving"} class:success={settingsState === "idle"} class:error={settingsState === "error"}>
             {settingsStatusMessage}
@@ -1423,6 +1559,51 @@
               </button>
             {/each}
           </div>
+        </section>
+
+        <section class="card list-card">
+          <p class="label">Gemini credential</p>
+          <h3>Manage the Gemini API key securely</h3>
+          <p>
+            The saved key is never shown again after save. Enter a new value only when you want to
+            add or replace the key in the OS keychain.
+          </p>
+
+          <form class="field-grid" on:submit|preventDefault={submitGeminiApiKey}>
+            <label class="field-label" for="gemini-api-key">
+              <span>Gemini API key</span>
+              <input
+                id="gemini-api-key"
+                class="text-field"
+                type="password"
+                bind:value={geminiApiKeyDraft}
+                placeholder={geminiApiKeyPresence ? "Enter a new key to replace the saved one" : "Paste the Gemini API key"}
+                autocomplete="off"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
+                disabled={isGeminiApiKeyBusy}
+              />
+            </label>
+            <p
+              class:pending={geminiApiKeyActionState === "checking" || geminiApiKeyActionState === "saving" || geminiApiKeyActionState === "clearing" || geminiApiKeyPresenceState === "loading"}
+              class:success={geminiApiKeyActionState === "idle" && geminiApiKeyPresenceState !== "error"}
+              class:error={geminiApiKeyPresenceState === "error" || geminiApiKeyActionState === "error"}
+            >
+              {geminiApiKeyStatusMessage}
+            </p>
+            <div class="history-card-actions">
+              <button type="submit" class="ghost-button" disabled={isGeminiApiKeyBusy || geminiApiKeyDraftValue.length === 0}>
+                {geminiApiKeyPrimaryActionLabel}
+              </button>
+              <button type="button" class="ghost-button" on:click={removeGeminiApiKey} disabled={isGeminiApiKeyBusy || !geminiApiKeyPresence}>
+                {geminiApiKeyActionState === "clearing" ? "Clearing…" : "Clear saved key"}
+              </button>
+              <button type="button" class="ghost-button" on:click={() => void refreshGeminiApiKeyPresence()} disabled={isGeminiApiKeyBusy}>
+                {geminiApiKeyActionState === "checking" ? "Checking…" : "Check key status"}
+              </button>
+            </div>
+          </form>
         </section>
 
         <section class="card list-card">
@@ -1515,6 +1696,10 @@
             <div>
               <dt>Microphone</dt>
               <dd>{selectedMicrophoneLabel}</dd>
+            </div>
+            <div>
+              <dt>Gemini API key</dt>
+              <dd>{geminiApiKeySavedLabel}</dd>
             </div>
             <div>
               <dt>Auto-copy</dt>
@@ -2003,7 +2188,8 @@
     color: #e2e8f0;
   }
 
-  .select-field {
+  .select-field,
+  .text-field {
     border: 1px solid rgba(148, 163, 184, 0.18);
     border-radius: 14px;
     padding: 0.85rem 1rem;

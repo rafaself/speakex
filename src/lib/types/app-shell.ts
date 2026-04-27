@@ -57,6 +57,10 @@ export interface RecordingInputOption {
   unavailable?: boolean;
 }
 
+export type GeminiApiKeyPresenceState = "loading" | "present" | "missing" | "error";
+
+export type GeminiApiKeyActionState = "idle" | "checking" | "saving" | "clearing" | "error";
+
 export type SettingsDraft = AppSettings;
 
 export type { ProviderId };

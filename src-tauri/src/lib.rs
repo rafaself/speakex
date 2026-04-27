@@ -1,6 +1,7 @@
 pub mod history_database;
 pub mod history_repository;
 pub mod recorder;
+pub mod secret_store;
 pub mod transcription;
 
 use std::io;
@@ -19,6 +20,7 @@ use recorder::{
     ActiveRecordingSession, CancelledRecording, RecorderService, RecorderSnapshot,
     RecordingInputDevice, StoppedRecording,
 };
+use secret_store::SecretStoreService;
 use serde::Serialize;
 use tauri::Manager;
 use tauri::{AppHandle, State};
@@ -106,6 +108,32 @@ fn cancel_recording(
     recorder_service
         .cancel()
         .map_err(|error| format!("failed to cancel recording: {error}"))
+}
+
+#[tauri::command]
+fn save_gemini_api_key(
+    api_key: String,
+    secret_store_service: State<'_, SecretStoreService>,
+) -> Result<(), String> {
+    secret_store_service
+        .save_gemini_api_key(&api_key)
+        .map_err(|error| format!("failed to save Gemini API key: {error}"))
+}
+
+#[tauri::command]
+fn has_gemini_api_key(secret_store_service: State<'_, SecretStoreService>) -> Result<bool, String> {
+    secret_store_service
+        .has_gemini_api_key()
+        .map_err(|error| format!("failed to check Gemini API key: {error}"))
+}
+
+#[tauri::command]
+fn clear_gemini_api_key(
+    secret_store_service: State<'_, SecretStoreService>,
+) -> Result<bool, String> {
+    secret_store_service
+        .clear_gemini_api_key()
+        .map_err(|error| format!("failed to clear Gemini API key: {error}"))
 }
 
 #[derive(Clone, Debug)]
@@ -224,6 +252,7 @@ pub fn run() {
                 .join("recordings");
 
             app.manage(RecorderService::new(recordings_dir));
+            app.manage(SecretStoreService::new());
             app.manage(TranscriptionService::new(Arc::new(
                 MockTranscriptionProvider::new(),
             )));
@@ -242,6 +271,9 @@ pub fn run() {
             get_recording_status,
             stop_recording,
             cancel_recording,
+            save_gemini_api_key,
+            has_gemini_api_key,
+            clear_gemini_api_key,
             run_mock_transcription
         ])
         .run(tauri::generate_context!())

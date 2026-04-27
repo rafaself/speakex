@@ -218,7 +218,7 @@ export const providerOptions: ProviderOption[] = [
     id: "gemini",
     label: "Gemini",
     blurb: "Remote provider planned for the first MVP path.",
-    note: "Draft only — no API key or request flow yet."
+    note: "Store the API key in the OS keychain here; request execution arrives in a later release."
   }
 ];
 

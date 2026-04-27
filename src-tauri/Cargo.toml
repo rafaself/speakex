@@ -19,3 +19,4 @@ tauri-plugin-store = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 cpal = "0.15"
+keyring = "2.3.3"
