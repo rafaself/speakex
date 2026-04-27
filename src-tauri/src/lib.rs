@@ -21,12 +21,13 @@ use recorder::{
     RecordingInputDevice, StoppedRecording,
 };
 use secret_store::SecretStoreService;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use tauri::{AppHandle, State};
 use tauri_plugin_store::StoreExt;
 use transcription::{
-    AudioInput, MockTranscriptionProvider, Transcript, TranscriptionOptions, TranscriptionService,
+    AudioInput, GeminiProvider, MockTranscriptionProvider, Transcript, TranscriptionOptions,
+    TranscriptionService,
 };
 
 #[tauri::command]
@@ -147,6 +148,27 @@ struct MockTranscriptionSettings {
 struct RunMockTranscriptionResult {
     transcript: Transcript,
     saved_to_history: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RunGeminiTranscriptionRequest {
+    audio_input: AudioInput,
+    #[serde(default)]
+    options: TranscriptionOptions,
+}
+
+#[tauri::command]
+async fn run_gemini_transcription(
+    request: RunGeminiTranscriptionRequest,
+    secret_store_service: State<'_, SecretStoreService>,
+) -> Result<Transcript, String> {
+    TranscriptionService::new(Arc::new(GeminiProvider::new(
+        secret_store_service.inner().clone(),
+    )))
+    .transcribe(request.audio_input, request.options)
+    .await
+    .map_err(|error| format!("Gemini transcription failed: {error}"))
 }
 
 #[tauri::command]
@@ -274,6 +296,7 @@ pub fn run() {
             save_gemini_api_key,
             has_gemini_api_key,
             clear_gemini_api_key,
+            run_gemini_transcription,
             run_mock_transcription
         ])
         .run(tauri::generate_context!())

@@ -49,6 +49,32 @@ impl SecretStoreService {
             })
     }
 
+    pub(crate) fn read_gemini_api_key(&self) -> Result<String, String> {
+        match self
+            .backend
+            .get_password(SECRET_SERVICE_NAME, GEMINI_API_KEY_ACCOUNT)
+        {
+            Ok(api_key) => {
+                let normalized_api_key = api_key.trim();
+                if normalized_api_key.is_empty() {
+                    Err("Gemini API key is not configured".to_string())
+                } else {
+                    Ok(normalized_api_key.to_string())
+                }
+            }
+            Err(SecretStorageBackendError::NotFound) => {
+                Err("Gemini API key is not configured".to_string())
+            }
+            Err(SecretStorageBackendError::NoStorageAccess) => {
+                Err("secure storage is unavailable".to_string())
+            }
+            Err(SecretStorageBackendError::InvalidInput)
+            | Err(SecretStorageBackendError::Unexpected) => {
+                Err("secure storage failed while reading the Gemini API key".to_string())
+            }
+        }
+    }
+
     pub fn has_gemini_api_key(&self) -> Result<bool, String> {
         match self
             .backend
@@ -304,6 +330,33 @@ mod tests {
         assert!(!service
             .clear_gemini_api_key()
             .expect("clearing a missing Gemini API key should succeed"));
+    }
+
+    #[test]
+    fn read_gemini_api_key_returns_trimmed_secret() {
+        let (service, _backend) = secret_store_service_for_tests();
+
+        service
+            .save_gemini_api_key("  gemini-secret-token  ")
+            .expect("saving Gemini API key should succeed");
+
+        assert_eq!(
+            service
+                .read_gemini_api_key()
+                .expect("reading Gemini API key should succeed"),
+            "gemini-secret-token"
+        );
+    }
+
+    #[test]
+    fn read_gemini_api_key_reports_missing_secret() {
+        let (service, _backend) = secret_store_service_for_tests();
+
+        let error = service
+            .read_gemini_api_key()
+            .expect_err("missing Gemini API key should be reported");
+
+        assert_eq!(error, "Gemini API key is not configured");
     }
 
     #[test]

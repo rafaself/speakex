@@ -27,8 +27,10 @@
     type StoppedRecording
   } from "$lib/native/recording";
   import {
+    runGeminiTranscription,
     runMockTranscription,
-    type RunMockTranscriptionResult
+    type RunMockTranscriptionResult,
+    type Transcript
   } from "$lib/native/transcription";
   import {
     activeSection,
@@ -59,6 +61,7 @@
   type HistoryState = "loading" | "ready" | "error";
   type RecordingDevicesState = "loading" | "ready" | "error";
   type RecordingCommandState = "starting" | "stopping" | "cancelling" | null;
+  type TranscriptionCommandState = "mock" | "gemini" | null;
 
   type HistoryEntryStatus = "saved" | "attention";
 
@@ -98,7 +101,8 @@
   let historyError = "";
   let historyBusyEntryId: string | null = null;
   let isClearingHistory = false;
-  let isRunningMockTranscription = false;
+  let activeTranscriptionCommand: TranscriptionCommandState = null;
+  let latestTranscript: Transcript | null = null;
   let recordingDevicesState: RecordingDevicesState = "loading";
   let recordingDevicesError = "";
   let availableRecordingDevices: RecordingInputDevice[] = [];
@@ -114,7 +118,11 @@
     defaultRecordingInputOption;
   $: selectedMicrophoneLabel = selectedMicrophoneOption.label;
   $: selectedMicrophoneUnavailable = selectedMicrophoneOption.unavailable ?? false;
+  $: isRunningMockTranscription = activeTranscriptionCommand === "mock";
+  $: isRunningGeminiTranscription = activeTranscriptionCommand === "gemini";
+  $: isRunningTranscription = activeTranscriptionCommand !== null;
   $: primaryMockActionLabel = isRunningMockTranscription ? "Transcribing…" : "Run mock transcription";
+  $: primaryGeminiActionLabel = isRunningGeminiTranscription ? "Transcribing…" : "Run Gemini transcription";
   $: recordingDevicesStatusMessage =
     recordingDevicesState === "loading"
       ? "Loading available microphones from Rust…"
@@ -198,25 +206,45 @@
         ? "Stopped manually and kept locally"
         : "No completed recording yet";
   $: statusPollingLabel = activeRecordingSession === null ? "Inactive" : "Polling every second";
+  $: geminiTranscriptionStatusMessage =
+    currentRecordedAudio === null
+      ? "Complete a local recording first, then run Gemini manually from this screen."
+      : geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"
+        ? "Checking the OS keychain before enabling Gemini transcription…"
+        : geminiApiKeyPresenceState === "error"
+          ? "Unable to verify the Gemini API key right now. Recheck key status in Settings before running Gemini."
+          : !geminiApiKeyPresence
+            ? "Save a Gemini API key in Settings before running Gemini on the current recording."
+            : isRunningGeminiTranscription
+              ? "Gemini is transcribing the current local recording. This result stays in the preview only for Release 0.9."
+              : "Gemini can transcribe the current completed local recording on demand. The result will stay in the preview only.";
   $: canStartRecording =
     recordingDevicesState === "ready" &&
     recordingCommandState === null &&
     activeRecordingSession === null &&
-    !isRunningMockTranscription &&
+    !isRunningTranscription &&
     !selectedMicrophoneUnavailable;
   $: canStopRecording =
     activeRecordingSession !== null &&
     recordingCommandState === null &&
-    !isRunningMockTranscription;
+    !isRunningTranscription;
   $: canCancelRecording =
     activeRecordingSession !== null &&
     recordingCommandState === null &&
-    !isRunningMockTranscription;
+    !isRunningTranscription;
   $: canRunMockTranscription =
     activeRecordingSession === null &&
     recordingCommandState === null &&
-    !isRunningMockTranscription;
-  $: resetActionLabel = currentRecordedAudio ? "Clear recorded preview" : "Reset to idle";
+    !isRunningTranscription;
+  $: canRunGeminiTranscription =
+    currentRecordedAudio !== null &&
+    activeRecordingSession === null &&
+    recordingCommandState === null &&
+    !isRunningTranscription &&
+    !isGeminiApiKeyBusy &&
+    geminiApiKeyPresenceState !== "error" &&
+    geminiApiKeyPresence;
+  $: resetActionLabel = currentRecordedAudio || latestTranscript ? "Clear preview" : "Reset to idle";
   $: recordingActionLabel =
     recordingCommandState === "starting"
       ? "Starting…"
@@ -483,6 +511,7 @@
       const stoppedRecording = await stopRecording();
 
       activeRecordingSession = null;
+      latestTranscript = null;
       appStatus.setStatus(buildCompletedRecordingStatus(stoppedRecording));
     } catch (error) {
       activeRecordingSession = null;
@@ -666,6 +695,7 @@
     }
 
     recordingCommandState = "starting";
+    latestTranscript = null;
 
     try {
       const session = await startRecording(resolveSelectedDeviceName());
@@ -701,6 +731,7 @@
       const stoppedRecording = await stopRecording();
 
       activeRecordingSession = null;
+      latestTranscript = null;
       appStatus.setStatus(buildCompletedRecordingStatus(stoppedRecording));
     } catch (error) {
       activeRecordingSession = null;
@@ -731,6 +762,7 @@
 
       latestRecordingStatus = null;
       activeRecordingSession = null;
+      latestTranscript = null;
       syncIdleStatus(
         cancelled.deletedAudioPath
           ? `Recording ${cancelled.sessionId} was cancelled and the temporary file was deleted from the app cache.`
@@ -757,8 +789,9 @@
       return;
     }
 
-    isRunningMockTranscription = true;
+    activeTranscriptionCommand = "mock";
     const previousRecordedAudio = get(appStatus).recordedAudio;
+    latestTranscript = null;
 
     appStatus.setStatus(
       getAppStatusForPhase("transcribing", {
@@ -773,12 +806,14 @@
     try {
       const result = await runMockTranscription();
 
+      latestTranscript = result.transcript;
       appStatus.setStatus(buildCompletedMockStatus(result, previousRecordedAudio));
 
       if (result.savedToHistory) {
         await loadHistoryEntries();
       }
     } catch (error) {
+      latestTranscript = null;
       appStatus.setStatus(
         getAppStatusForPhase("error", {
           inputLabel: selectedMicrophoneLabel,
@@ -790,7 +825,52 @@
         })
       );
     } finally {
-      isRunningMockTranscription = false;
+      activeTranscriptionCommand = null;
+    }
+  }
+
+  async function startGeminiTranscription() {
+    if (!canRunGeminiTranscription || currentRecordedAudio === null) {
+      return;
+    }
+
+    activeTranscriptionCommand = "gemini";
+    latestTranscript = null;
+
+    appStatus.setStatus(
+      getAppStatusForPhase("transcribing", {
+        headline: "Gemini transcription is running.",
+        inputLabel: currentRecordedAudio.inputDeviceName,
+        detail:
+          "The frontend is waiting on the explicit Rust Gemini transcription command for the current completed WAV file. The result stays in the preview only for this release.",
+        transcriptTitle: "Gemini transcript incoming…",
+        transcriptPreview: `${formatFileName(currentRecordedAudio.path)} is being sent through the explicit Gemini bridge. This run will not save to history or copy to the clipboard.`,
+        durationLabel: formatDuration(currentRecordedAudio.durationMs),
+        recordingTiming: buildRecordingTimingFromRecordedAudio(currentRecordedAudio),
+        recordedAudio: currentRecordedAudio
+      })
+    );
+
+    try {
+      const transcript = await runGeminiTranscription(currentRecordedAudio, buildGeminiTranscriptionOptions());
+
+      latestTranscript = transcript;
+      appStatus.setStatus(buildCompletedGeminiStatus(transcript, currentRecordedAudio));
+    } catch (error) {
+      latestTranscript = null;
+      appStatus.setStatus(
+        getAppStatusForPhase("error", {
+          inputLabel: currentRecordedAudio.inputDeviceName,
+          detail: error instanceof Error ? error.message : "Unable to finish the Gemini transcription flow.",
+          transcriptPreview:
+            "The explicit Gemini transcription command did not finish. The current recording remains local and is not saved to history automatically.",
+          durationLabel: formatDuration(currentRecordedAudio.durationMs),
+          recordingTiming: buildRecordingTimingFromRecordedAudio(currentRecordedAudio),
+          recordedAudio: currentRecordedAudio
+        })
+      );
+    } finally {
+      activeTranscriptionCommand = null;
     }
   }
 
@@ -798,6 +878,7 @@
     stopRecordingStatusPolling();
     latestRecordingStatus = null;
     activeRecordingSession = null;
+    latestTranscript = null;
     syncIdleStatus();
   }
 
@@ -820,7 +901,7 @@
             ? "Microphone loading failed. Retry device loading or switch to the mock transcription flow while recording is unavailable."
             : selectedMicrophoneUnavailable
               ? "Choose an available microphone before starting a real recording. The saved selection is preserved so you can update it explicitly."
-              : "Start a recording to capture a temporary WAV file locally, or run the mock transcription path separately.",
+              : "Start a recording to capture a temporary WAV file locally, then run either the mock path or Gemini manually.",
         inputLabel: selectedMicrophoneLabel,
         durationLabel: "—",
         recordingTiming: null,
@@ -936,11 +1017,11 @@
         : "Recorded audio is ready.",
       detail: stoppedRecording.limitReached
         ? `Capture stopped automatically because the maximum recording duration of ${formatDuration(recordingTiming.maxDurationMs)} was reached. The WAV file was kept locally, and no transcription ran automatically.`
-        : "The recorder stopped successfully and kept the temporary WAV file for later releases. No transcription ran automatically.",
+        : "The recorder stopped successfully and kept the temporary WAV file locally. Choose mock or Gemini manually when you are ready to transcribe.",
       transcriptTitle: "Recorded audio metadata",
       transcriptPreview: stoppedRecording.limitReached
-        ? `${formatFileName(recordedAudio.path)} was captured locally after the automatic safety stop. Run the mock transcription flow separately if you want a fake transcript.`
-        : `${formatFileName(recordedAudio.path)} is available locally and ready for later manual flows.`,
+        ? `${formatFileName(recordedAudio.path)} was captured locally after the automatic safety stop. Run mock or Gemini manually when you are ready.`
+        : `${formatFileName(recordedAudio.path)} is available locally and ready for explicit mock or Gemini transcription.`,
       inputLabel: stoppedRecording.inputDeviceName,
       durationLabel: buildDurationSummaryLabel(recordingTiming),
       recordingTiming,
@@ -958,7 +1039,7 @@
 
     return getAppStatusForPhase("completed", {
       headline: "Mock transcript ready.",
-      detail: `${historyDetail} The result is still intentionally fake and separate from recorded audio in Release 0.7.`,
+      detail: `${historyDetail} The result remains intentionally fake and separate from the explicit Gemini path in Release 0.9.`,
       transcriptTitle: result.savedToHistory
         ? "Mock transcript saved locally"
         : "Mock transcript kept in memory only",
@@ -968,6 +1049,31 @@
       recordingTiming: recordedAudio ? buildRecordingTimingFromRecordedAudio(recordedAudio) : null,
       recordedAudio
     });
+  }
+
+  function buildCompletedGeminiStatus(
+    transcript: Transcript,
+    recordedAudio: RecordedAudioMetadata
+  ) {
+    return getAppStatusForPhase("completed", {
+      headline: "Gemini transcript ready.",
+      detail:
+        "Gemini finished transcribing the current local recording. The transcript stays in the preview only for Release 0.9 and is not saved to history or copied to the clipboard.",
+      transcriptTitle: "Gemini transcript kept in preview only",
+      transcriptPreview: transcript.text,
+      inputLabel: recordedAudio.inputDeviceName,
+      durationLabel: formatDuration(transcript.durationMs ?? recordedAudio.durationMs),
+      recordingTiming: buildRecordingTimingFromRecordedAudio(recordedAudio),
+      recordedAudio
+    });
+  }
+
+  function buildGeminiTranscriptionOptions() {
+    const defaultLanguage = get(settingsDraft).defaultLanguage;
+
+    return {
+      language: defaultLanguage === "auto" ? null : defaultLanguage
+    };
   }
 
   function mapStoppedRecording(stoppedRecording: StoppedRecording): RecordedAudioMetadata {
@@ -1081,11 +1187,11 @@
 <main class="app-shell">
   <aside class="sidebar">
     <div class="brand-block">
-      <p class="eyebrow">Release 0.7</p>
+      <p class="eyebrow">Release 0.9</p>
       <h1>SpeakEx</h1>
       <p class="brand-copy">
-        Local-first transcription for the desktop. This release adds a hard 15-minute recording
-        cap with explicit status polling while keeping mock transcription as a separate action.
+        Local-first transcription for the desktop. This release keeps recording explicit while
+        adding a manual Gemini path for completed local recordings.
       </p>
     </div>
 
@@ -1138,11 +1244,11 @@
       </div>
       <p class="workspace-copy">
         {#if $activeSection === "recording"}
-          The recording workspace now polls explicit recorder status, shows the 15-minute safety
-          cap, and keeps recorded audio separate from transcription.
+          The recording workspace now polls explicit recorder status, keeps mock transcription
+          separate, and adds a manual Gemini path for completed local recordings.
         {:else if $activeSection === "history"}
-          Saved transcript history still loads from the local database. Mock transcripts appear here
-          only when the saved history setting allows them.
+          Saved transcript history still loads from the local database. Only the explicit mock path
+          can write here in Release 0.9; Gemini preview results stay out of history.
         {:else}
           Provider selection and preferences still hydrate from local storage, and the preferred
           microphone now reflects the real device list exposed by Rust.
@@ -1161,7 +1267,7 @@
             <p class:pending={recordingDevicesState === "loading"} class:success={recordingDevicesState === "ready"} class:error={recordingDevicesState === "error"}>
               {recordingDevicesStatusMessage}
             </p>
-            <p class="phase-note">Real recording is active in Release 0.7. Mock transcription still stays separate on purpose.</p>
+            <p class="phase-note">Real recording is active in Release 0.9. Mock and Gemini transcription both stay manual on purpose.</p>
             <p class="phase-note"><strong>{recordingLimitLabel}</strong> · Elapsed {elapsedTimeLabel} · Remaining {remainingTimeLabel}</p>
             <p class="phase-note">{mockHistoryModeLabel}</p>
           </div>
@@ -1201,13 +1307,29 @@
             </button>
             <button
               type="button"
+              class="secondary-button"
+              on:click={startGeminiTranscription}
+              disabled={!canRunGeminiTranscription}
+            >
+              {primaryGeminiActionLabel}
+            </button>
+            <button
+              type="button"
               class="ghost-button"
               on:click={resetWorkspace}
-              disabled={activeRecordingSession !== null || ($appStatus.phase === "idle" && currentRecordedAudio === null)}
+              disabled={activeRecordingSession !== null || ($appStatus.phase === "idle" && currentRecordedAudio === null && latestTranscript === null)}
             >
               {resetActionLabel}
             </button>
           </div>
+
+          <p
+            class:pending={currentRecordedAudio === null || isRunningGeminiTranscription || geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"}
+            class:success={currentRecordedAudio !== null && geminiApiKeyPresence && !isRunningGeminiTranscription && geminiApiKeyPresenceState !== "error"}
+            class:error={(currentRecordedAudio !== null && (!geminiApiKeyPresence || geminiApiKeyPresenceState === "error")) || geminiApiKeyActionState === "error"}
+          >
+            {geminiTranscriptionStatusMessage}
+          </p>
         </section>
 
         <section class="card transcript-card">
@@ -1232,6 +1354,31 @@
             <p>{$appStatus.transcriptTitle}</p>
             <p>{$appStatus.transcriptPreview}</p>
           </div>
+
+          {#if latestTranscript}
+            <dl class="history-meta draft-meta">
+              <div>
+                <dt>Provider</dt>
+                <dd>{latestTranscript.provider}</dd>
+              </div>
+              <div>
+                <dt>Model</dt>
+                <dd>{latestTranscript.model ?? "Default"}</dd>
+              </div>
+              <div>
+                <dt>Language</dt>
+                <dd>{latestTranscript.language ?? ($settingsDraft.defaultLanguage === "auto" ? "Auto-detect" : $settingsDraft.defaultLanguage)}</dd>
+              </div>
+              <div>
+                <dt>Duration</dt>
+                <dd>{formatDuration(latestTranscript.durationMs ?? currentRecordedAudio?.durationMs ?? null)}</dd>
+              </div>
+              <div>
+                <dt>History</dt>
+                <dd>{latestTranscript.provider === "gemini" ? "Not saved in Release 0.9" : $settingsDraft.saveTranscriptionHistory ? "Saved if enabled" : "Not saved"}</dd>
+              </div>
+            </dl>
+          {/if}
 
           {#if currentRecordedAudio}
             <dl class="history-meta draft-meta">
@@ -1381,6 +1528,10 @@
               <dd><code>run_mock_transcription</code></dd>
             </div>
             <div>
+              <dt>Gemini command</dt>
+              <dd><code>run_gemini_transcription</code></dd>
+            </div>
+            <div>
               <dt>Preferred microphone</dt>
               <dd>{selectedMicrophoneLabel}</dd>
             </div>
@@ -1424,7 +1575,7 @@
           </div>
           <p>
             This view reads saved transcripts from SQLite through explicit native commands. In Release
-            0.7, only the separate mock transcription flow writes entries here.
+            0.9, only the separate mock transcription flow writes entries here.
           </p>
           <div class="history-toolbar">
             <p class:pending={historyState === "loading"} class:success={historyState === "ready" && historyError === ""} class:error={historyError !== ""}>
