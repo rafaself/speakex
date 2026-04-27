@@ -4,6 +4,7 @@ pub mod manual_flow;
 pub mod recorder;
 pub mod secret_store;
 pub mod transcription;
+pub mod tray;
 
 use std::io;
 use std::{
@@ -27,7 +28,7 @@ use recorder::{
 use secret_store::SecretStoreService;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, State, WindowEvent};
 use tauri_plugin_store::StoreExt;
 use transcription::{
     AudioInput, GeminiProvider, MockTranscriptionProvider, Transcript, TranscriptionOptions,
@@ -80,39 +81,60 @@ fn list_recording_input_devices(
 
 #[tauri::command]
 fn start_recording(
+    app: AppHandle,
     device_name: Option<String>,
     recorder_service: State<'_, RecorderService>,
 ) -> Result<ActiveRecordingSession, String> {
-    recorder_service
+    let result = recorder_service
         .start(device_name)
-        .map_err(|error| format!("failed to start recording: {error}"))
+        .map_err(|error| format!("failed to start recording: {error}"));
+    let _ = tray::sync_recording_menu(&app);
+
+    result
 }
 
 #[tauri::command]
 fn get_recording_status(
+    app: AppHandle,
     recorder_service: State<'_, RecorderService>,
 ) -> Result<RecorderSnapshot, String> {
-    recorder_service
+    let result = recorder_service
         .snapshot()
-        .map_err(|error| format!("failed to read recording status: {error}"))
+        .map_err(|error| format!("failed to read recording status: {error}"));
+
+    if let Ok(snapshot) = &result {
+        let _ = tray::sync_recording_menu_for_snapshot(&app, snapshot);
+    } else {
+        let _ = tray::sync_recording_menu(&app);
+    }
+
+    result
 }
 
 #[tauri::command]
 fn stop_recording(
+    app: AppHandle,
     recorder_service: State<'_, RecorderService>,
 ) -> Result<StoppedRecording, String> {
-    recorder_service
+    let result = recorder_service
         .stop()
-        .map_err(|error| format!("failed to stop recording: {error}"))
+        .map_err(|error| format!("failed to stop recording: {error}"));
+    let _ = tray::sync_recording_menu(&app);
+
+    result
 }
 
 #[tauri::command]
 fn cancel_recording(
+    app: AppHandle,
     recorder_service: State<'_, RecorderService>,
 ) -> Result<CancelledRecording, String> {
-    recorder_service
+    let result = recorder_service
         .cancel()
-        .map_err(|error| format!("failed to cancel recording: {error}"))
+        .map_err(|error| format!("failed to cancel recording: {error}"));
+    let _ = tray::sync_recording_menu(&app);
+
+    result
 }
 
 #[tauri::command]
@@ -312,6 +334,14 @@ fn normalize_duration_ms(duration_ms: Option<u64>) -> Result<Option<i64>, String
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if tray::should_hide_on_close(window.label(), tray::is_quitting(window)) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
             let history_database =
                 history_database::initialize(app.handle()).map_err(io::Error::other)?;
@@ -328,6 +358,8 @@ pub fn run() {
             app.manage(TranscriptionService::new(Arc::new(
                 MockTranscriptionProvider::new(),
             )));
+            app.manage(tray::AppExitState::default());
+            tray::initialize(app.handle()).map_err(io::Error::other)?;
 
             Ok(())
         })
