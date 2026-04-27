@@ -65,6 +65,12 @@ struct RecordingTrayMenuState {
     cancel_enabled: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ToggleRecordingAction {
+    Start,
+    Stop,
+}
+
 impl RecordingTrayMenuState {
     fn from_snapshot(snapshot: &RecorderSnapshot, preferred_input_available: bool) -> Self {
         match snapshot.phase {
@@ -180,6 +186,28 @@ pub fn sync_recording_menu_for_snapshot<R: Runtime>(
         app,
         RecordingTrayMenuState::from_snapshot(snapshot, preferred_input_available),
     )
+}
+
+pub fn toggle_recording<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let Some(recorder_service) = app.try_state::<RecorderService>() else {
+        return Err("recorder service is unavailable for shortcut toggle".to_string());
+    };
+
+    let action = toggle_recording_action(
+        recorder_service
+            .snapshot()
+            .map_err(|error| format!("failed to read recording status for shortcut: {error}"))?
+            .phase,
+    )
+    .ok_or_else(|| "recording cannot be toggled while the recorder is transitioning".to_string())?;
+
+    let result = match action {
+        ToggleRecordingAction::Start => handle_start_recording(app),
+        ToggleRecordingAction::Stop => handle_stop_recording(app),
+    };
+    let _ = sync_recording_menu(app);
+
+    result
 }
 
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
@@ -306,6 +334,14 @@ fn apply_recording_menu_state<R: Runtime>(
     }
 
     Ok(())
+}
+
+fn toggle_recording_action(phase: RecorderPhase) -> Option<ToggleRecordingAction> {
+    match phase {
+        RecorderPhase::Idle => Some(ToggleRecordingAction::Start),
+        RecorderPhase::Recording => Some(ToggleRecordingAction::Stop),
+        RecorderPhase::Starting | RecorderPhase::Stopping | RecorderPhase::Cancelling => None,
+    }
 }
 
 fn preferred_input_available<R: Runtime>(
@@ -519,5 +555,25 @@ mod tests {
             Some("Unavailable Mic"),
             &devices
         ));
+    }
+
+    #[test]
+    fn determines_toggle_recording_action_from_phase() {
+        assert_eq!(
+            toggle_recording_action(RecorderPhase::Idle),
+            Some(ToggleRecordingAction::Start)
+        );
+        assert_eq!(
+            toggle_recording_action(RecorderPhase::Recording),
+            Some(ToggleRecordingAction::Stop)
+        );
+
+        for phase in [
+            RecorderPhase::Starting,
+            RecorderPhase::Stopping,
+            RecorderPhase::Cancelling,
+        ] {
+            assert_eq!(toggle_recording_action(phase), None);
+        }
     }
 }

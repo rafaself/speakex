@@ -3,6 +3,7 @@ pub mod history_repository;
 pub mod manual_flow;
 pub mod recorder;
 pub mod secret_store;
+pub mod shortcut;
 pub mod transcription;
 pub mod tray;
 
@@ -27,6 +28,7 @@ use recorder::{
 };
 use secret_store::SecretStoreService;
 use serde::{Deserialize, Serialize};
+use shortcut::{RecordingShortcutStatus, ShortcutService};
 use tauri::Manager;
 use tauri::{AppHandle, State, WindowEvent};
 use tauri_plugin_store::StoreExt;
@@ -135,6 +137,22 @@ fn cancel_recording(
     let _ = tray::sync_recording_menu(&app);
 
     result
+}
+
+#[tauri::command]
+fn get_recording_shortcut_status(
+    shortcut_service: State<'_, ShortcutService>,
+) -> Result<RecordingShortcutStatus, String> {
+    shortcut_service.status()
+}
+
+#[tauri::command]
+fn apply_recording_shortcut(
+    app: AppHandle,
+    shortcut: Option<String>,
+    shortcut_service: State<'_, ShortcutService>,
+) -> Result<RecordingShortcutStatus, String> {
+    shortcut::apply_recording_shortcut(&app, shortcut_service.inner(), shortcut)
 }
 
 #[tauri::command]
@@ -359,10 +377,13 @@ pub fn run() {
                 MockTranscriptionProvider::new(),
             )));
             app.manage(tray::AppExitState::default());
+            app.manage(ShortcutService::default());
             tray::initialize(app.handle()).map_err(io::Error::other)?;
+            shortcut::initialize(app.handle()).map_err(io::Error::other)?;
 
             Ok(())
         })
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
@@ -376,6 +397,8 @@ pub fn run() {
             get_recording_status,
             stop_recording,
             cancel_recording,
+            get_recording_shortcut_status,
+            apply_recording_shortcut,
             save_gemini_api_key,
             has_gemini_api_key,
             clear_gemini_api_key,

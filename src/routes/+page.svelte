@@ -11,6 +11,11 @@
     type HistoryTranscriptionSummary
   } from "$lib/native/history";
   import {
+    applyRecordingShortcut,
+    getRecordingShortcutStatus,
+    type RecordingShortcutStatus
+  } from "$lib/native/shortcut";
+  import {
     clearGeminiApiKey,
     hasGeminiApiKey,
     saveGeminiApiKey
@@ -65,6 +70,7 @@
   type HistoryDetailState = "idle" | "loading" | "ready" | "error";
   type RecordingDevicesState = "loading" | "ready" | "error";
   type RecordingCommandState = "starting" | "stopping" | "cancelling" | null;
+  type ShortcutActionState = "idle" | "loading" | "applying" | "reapplying" | "clearing" | "error";
   type TranscriptionCommandState = "mock" | "manual" | null;
 
   type HistoryEntryStatus = "saved" | "attention";
@@ -106,6 +112,10 @@
   let geminiApiKeyPresenceState: GeminiApiKeyPresenceState = "loading";
   let geminiApiKeyActionState: GeminiApiKeyActionState = "checking";
   let geminiApiKeyStatusDetail = "";
+  let recordingShortcutDraft = "";
+  let recordingShortcutStatus: RecordingShortcutStatus | null = null;
+  let recordingShortcutActionState: ShortcutActionState = "loading";
+  let recordingShortcutError = "";
   let historyState: HistoryState = "loading";
   let historyEntries: HistoryEntryViewModel[] = [];
   let historyError = "";
@@ -198,6 +208,42 @@
         : geminiApiKeyPresence
           ? "Saved in OS keychain"
           : "Not saved";
+  $: savedRecordingShortcut = $settingsDraft.shortcut;
+  $: savedRecordingShortcutLabel = formatShortcutValue(
+    savedRecordingShortcut,
+    "No saved shortcut override"
+  );
+  $: currentRecordingShortcutValueLabel = formatShortcutValue(
+    recordingShortcutStatus?.activeShortcut ?? recordingShortcutStatus?.requestedShortcut,
+    "No runtime shortcut"
+  );
+  $: recordingShortcutStateLabel = describeRecordingShortcutState(recordingShortcutStatus);
+  $: recordingShortcutSourceLabel = describeRecordingShortcutSource(recordingShortcutStatus);
+  $: isRecordingShortcutBusy =
+    recordingShortcutActionState === "loading" ||
+    recordingShortcutActionState === "applying" ||
+    recordingShortcutActionState === "reapplying" ||
+    recordingShortcutActionState === "clearing";
+  $: canClearRecordingShortcut =
+    !isRecordingShortcutBusy &&
+    (savedRecordingShortcut !== null ||
+      recordingShortcutDraft.trim().length > 0 ||
+      (recordingShortcutStatus?.activeShortcut ?? recordingShortcutStatus?.requestedShortcut) !==
+        null);
+  $: recordingShortcutPrimaryActionLabel =
+    recordingShortcutActionState === "applying" ? "Saving and applying…" : "Save and apply";
+  $: recordingShortcutReapplyLabel =
+    recordingShortcutActionState === "reapplying" ? "Re-applying…" : "Re-apply saved shortcut";
+  $: recordingShortcutClearLabel =
+    recordingShortcutActionState === "clearing" ? "Clearing…" : "Clear saved shortcut";
+  $: recordingShortcutRefreshLabel =
+    recordingShortcutActionState === "loading" ? "Checking…" : "Refresh status";
+  $: recordingShortcutStatusMessage = buildRecordingShortcutStatusMessage(
+    recordingShortcutActionState,
+    recordingShortcutStatus,
+    savedRecordingShortcut,
+    recordingShortcutError
+  );
   $: historyStatusMessage =
     historyState === "loading"
       ? "Loading transcript history from the local database…"
@@ -353,7 +399,11 @@
   }
 
   async function initializeWorkspace() {
-    await Promise.all([hydrateSettings(), refreshGeminiApiKeyPresence(false)]);
+    await Promise.all([
+      hydrateSettings(),
+      refreshGeminiApiKeyPresence(false),
+      refreshRecordingShortcutStatus(false)
+    ]);
     await loadRecordingDevices();
     await syncRecorderFromNative(true);
 
@@ -371,10 +421,36 @@
 
       settingsDraft.patch(persistedSettings);
       lastSavedSettings = persistedSettings;
+      recordingShortcutDraft = persistedSettings.shortcut ?? "";
       settingsState = "idle";
     } catch (error) {
       settingsError = error instanceof Error ? error.message : "Unable to load saved preferences";
       settingsState = "error";
+    }
+  }
+
+  async function refreshRecordingShortcutStatus(showFeedback = true) {
+    if (
+      recordingShortcutActionState === "applying" ||
+      recordingShortcutActionState === "reapplying" ||
+      recordingShortcutActionState === "clearing"
+    ) {
+      return;
+    }
+
+    recordingShortcutActionState = "loading";
+
+    if (showFeedback) {
+      recordingShortcutError = "";
+    }
+
+    try {
+      recordingShortcutStatus = await getRecordingShortcutStatus();
+      recordingShortcutActionState = "idle";
+    } catch (error) {
+      recordingShortcutActionState = "error";
+      recordingShortcutError =
+        error instanceof Error ? error.message : "Unable to load the recording shortcut status.";
     }
   }
 
@@ -408,7 +484,10 @@
     }
   }
 
-  async function persistSettings(nextSettings: SettingsDraft) {
+  async function persistSettings(
+    nextSettings: SettingsDraft,
+    options: { rethrow?: boolean } = {}
+  ) {
     const requestId = ++latestSettingsRequest;
 
     settingsDraft.patch(nextSettings);
@@ -444,11 +523,18 @@
 
       settingsState = "idle";
     } catch (error) {
+      const resolvedError =
+        error instanceof Error ? error : new Error("Unable to save preferences");
+
       if (requestId !== latestSettingsRequest) {
+        if (options.rethrow) {
+          throw resolvedError;
+        }
+
         return;
       }
 
-      settingsError = error instanceof Error ? error.message : "Unable to save preferences";
+      settingsError = resolvedError.message;
       settingsState = "error";
 
       if (lastSavedSettings) {
@@ -456,6 +542,10 @@
         recordingInputOptions.set(
           createRecordingInputOptions(availableRecordingDevices, lastSavedSettings.selectedMicrophone)
         );
+      }
+
+      if (options.rethrow) {
+        throw resolvedError;
       }
     }
   }
@@ -787,6 +877,80 @@
       ...draft,
       [key]: !draft[key]
     });
+  }
+
+  async function submitRecordingShortcut() {
+    const nextShortcut = recordingShortcutDraft.trim();
+
+    if (isRecordingShortcutBusy || nextShortcut.length === 0) {
+      return;
+    }
+
+    await saveAndApplyRecordingShortcut(nextShortcut, "applying");
+  }
+
+  async function reapplySavedRecordingShortcut() {
+    const savedShortcut = get(settingsDraft).shortcut;
+
+    if (isRecordingShortcutBusy || savedShortcut === null) {
+      return;
+    }
+
+    recordingShortcutActionState = "reapplying";
+    recordingShortcutError = "";
+
+    try {
+      recordingShortcutStatus = await applyRecordingShortcut(savedShortcut);
+      recordingShortcutDraft = savedShortcut;
+      recordingShortcutActionState = "idle";
+    } catch (error) {
+      recordingShortcutActionState = "error";
+      recordingShortcutError =
+        error instanceof Error
+          ? error.message
+          : "Unable to re-apply the saved recording shortcut.";
+    }
+  }
+
+  async function clearRecordingShortcutSetting() {
+    if (!canClearRecordingShortcut) {
+      return;
+    }
+
+    recordingShortcutDraft = "";
+    await saveAndApplyRecordingShortcut(null, "clearing");
+  }
+
+  async function saveAndApplyRecordingShortcut(
+    shortcut: string | null,
+    action: "applying" | "clearing"
+  ) {
+    recordingShortcutActionState = action;
+    recordingShortcutError = "";
+
+    try {
+      await persistSettings(
+        {
+          ...get(settingsDraft),
+          shortcut
+        },
+        { rethrow: true }
+      );
+
+      const savedShortcut = get(settingsDraft).shortcut;
+      recordingShortcutDraft = savedShortcut ?? "";
+      recordingShortcutStatus = await applyRecordingShortcut(savedShortcut);
+      recordingShortcutActionState = "idle";
+    } catch (error) {
+      recordingShortcutDraft = get(settingsDraft).shortcut ?? "";
+      recordingShortcutActionState = "error";
+      recordingShortcutError =
+        error instanceof Error
+          ? error.message
+          : action === "clearing"
+            ? "Unable to clear the saved recording shortcut."
+            : "Unable to save and apply the recording shortcut.";
+    }
   }
 
   async function submitGeminiApiKey() {
@@ -1463,6 +1627,109 @@
     }).format(date);
   }
 
+  function formatShortcutValue(
+    value: string | null | undefined,
+    fallback: string
+  ): string {
+    const normalized = value?.trim();
+
+    return normalized ? normalized : fallback;
+  }
+
+  function describeRecordingShortcutState(
+    status: RecordingShortcutStatus | null
+  ): string {
+    switch (status?.state) {
+      case "active":
+        return "Active";
+      case "invalid":
+        return "Invalid";
+      case "unavailable":
+        return "Unavailable";
+      case "unconfigured":
+      default:
+        return "Unconfigured";
+    }
+  }
+
+  function describeRecordingShortcutSource(
+    status: RecordingShortcutStatus | null
+  ): string {
+    switch (status?.source) {
+      case "saved":
+        return "Saved shortcut";
+      case "default":
+        return "Default shortcut";
+      case "custom":
+        return "Applied in this session";
+      case "none":
+      default:
+        return "No runtime source";
+    }
+  }
+
+  function buildRecordingShortcutStatusMessage(
+    actionState: ShortcutActionState,
+    status: RecordingShortcutStatus | null,
+    savedShortcut: string | null,
+    errorMessage: string
+  ): string {
+    if (actionState === "loading") {
+      return "Checking the current recording shortcut status from Rust…";
+    }
+
+    if (actionState === "applying") {
+      return "Saving the shortcut locally and applying it in Rust…";
+    }
+
+    if (actionState === "reapplying") {
+      return "Retrying the saved shortcut registration in Rust…";
+    }
+
+    if (actionState === "clearing") {
+      return "Clearing the saved shortcut and unregistering it from the current runtime…";
+    }
+
+    if (actionState === "error") {
+      return errorMessage || "Unable to update the recording shortcut.";
+    }
+
+    if (status === null) {
+      return "Recording shortcut status is unavailable right now.";
+    }
+
+    if (status.state === "active") {
+      const activeShortcut = status.activeShortcut ?? status.requestedShortcut ?? "the current shortcut";
+
+      if (status.source === "default") {
+        return `No saved shortcut exists, so Rust registered the default ${activeShortcut}.`;
+      }
+
+      if (status.source === "saved") {
+        return `The saved recording shortcut ${activeShortcut} is active.`;
+      }
+
+      return `The recording shortcut ${activeShortcut} is active in the current runtime.`;
+    }
+
+    if (status.state === "invalid") {
+      return status.detail ?? "The saved recording shortcut could not be parsed by Rust.";
+    }
+
+    if (status.state === "unavailable") {
+      return (
+        status.detail ??
+        "The requested recording shortcut could not be registered, likely because another app or the system already uses it."
+      );
+    }
+
+    if (savedShortcut === null) {
+      return "No shortcut override is saved. Startup still tries the default Ctrl+Alt+A when no saved shortcut exists.";
+    }
+
+    return "The saved recording shortcut is not active right now.";
+  }
+
   function formatDuration(durationMs: number | null): string {
     if (durationMs === null || durationMs < 0) {
       return "—";
@@ -1571,8 +1838,8 @@
           Saved transcript history loads from the local database, and the selected detail panel now
           shows the full transcript plus stored clipboard and audio outcomes.
         {:else}
-          Provider selection and preferences still hydrate from local storage, and the preferred
-          microphone now reflects the real device list exposed by Rust.
+          Provider selection, shortcut state, and preferences hydrate from local storage, while the
+          preferred microphone reflects the real device list exposed by Rust.
         {/if}
       </p>
     </header>
@@ -2181,6 +2448,93 @@
         </section>
 
         <section class="card list-card">
+          <p class="label">Recording shortcut</p>
+          <h3>Manage the global recording shortcut</h3>
+          <p>
+            Save a shortcut override here, apply it immediately through Rust, or clear it for the
+            current session. When no saved shortcut exists, app startup still tries the default
+            <code>Ctrl+Alt+A</code>.
+          </p>
+
+          <form class="field-grid" on:submit|preventDefault={submitRecordingShortcut}>
+            <label class="field-label" for="recording-shortcut">
+              <span>Recording shortcut</span>
+              <input
+                id="recording-shortcut"
+                class="text-field"
+                type="text"
+                bind:value={recordingShortcutDraft}
+                placeholder="Example: Ctrl+Alt+A"
+                autocomplete="off"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
+                disabled={isRecordingShortcutBusy}
+              />
+            </label>
+            <p
+              class:pending={recordingShortcutActionState === "loading" || recordingShortcutActionState === "applying" || recordingShortcutActionState === "reapplying" || recordingShortcutActionState === "clearing"}
+              class:success={recordingShortcutActionState === "idle" && recordingShortcutStatus?.state === "active"}
+              class:error={recordingShortcutActionState === "error" || recordingShortcutStatus?.state === "invalid" || recordingShortcutStatus?.state === "unavailable"}
+            >
+              {recordingShortcutStatusMessage}
+            </p>
+            <div class="history-card-actions">
+              <button
+                type="submit"
+                class="ghost-button"
+                disabled={isRecordingShortcutBusy || recordingShortcutDraft.trim().length === 0}
+              >
+                {recordingShortcutPrimaryActionLabel}
+              </button>
+              <button
+                type="button"
+                class="ghost-button"
+                on:click={reapplySavedRecordingShortcut}
+                disabled={isRecordingShortcutBusy || savedRecordingShortcut === null}
+              >
+                {recordingShortcutReapplyLabel}
+              </button>
+              <button
+                type="button"
+                class="ghost-button"
+                on:click={clearRecordingShortcutSetting}
+                disabled={!canClearRecordingShortcut}
+              >
+                {recordingShortcutClearLabel}
+              </button>
+              <button
+                type="button"
+                class="ghost-button"
+                on:click={() => void refreshRecordingShortcutStatus()}
+                disabled={isRecordingShortcutBusy}
+              >
+                {recordingShortcutRefreshLabel}
+              </button>
+            </div>
+          </form>
+
+          <dl class="history-meta draft-meta shortcut-meta">
+            <div>
+              <dt>Saved value</dt>
+              <dd>{savedRecordingShortcutLabel}</dd>
+            </div>
+            <div>
+              <dt>Current runtime value</dt>
+              <dd>{currentRecordingShortcutValueLabel}</dd>
+            </div>
+            <div>
+              <dt>Registration state</dt>
+              <dd>{recordingShortcutStateLabel}</dd>
+            </div>
+            <div>
+              <dt>Runtime source</dt>
+              <dd>{recordingShortcutSourceLabel}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="card list-card">
           <p class="label">Gemini credential</p>
           <h3>Manage the Gemini API key securely</h3>
           <p>
@@ -2315,6 +2669,14 @@
             <div>
               <dt>Microphone</dt>
               <dd>{selectedMicrophoneLabel}</dd>
+            </div>
+            <div>
+              <dt>Recording shortcut</dt>
+              <dd>{savedRecordingShortcutLabel}</dd>
+            </div>
+            <div>
+              <dt>Shortcut status</dt>
+              <dd>{recordingShortcutStateLabel}</dd>
             </div>
             <div>
               <dt>Gemini API key</dt>
@@ -2878,6 +3240,10 @@
 
   .draft-meta {
     grid-template-columns: 1fr;
+  }
+
+  .shortcut-meta dd {
+    word-break: break-word;
   }
 
   .pending {
