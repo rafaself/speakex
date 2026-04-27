@@ -6,6 +6,8 @@
     clearHistory,
     deleteTranscription,
     getHistory,
+    getTranscription,
+    type HistoryTranscription,
     type HistoryTranscriptionSummary
   } from "$lib/native/history";
   import {
@@ -60,6 +62,7 @@
   type PingState = "idle" | "loading" | "success" | "error";
   type SettingsState = "idle" | "loading" | "saving" | "error";
   type HistoryState = "loading" | "ready" | "error";
+  type HistoryDetailState = "idle" | "loading" | "ready" | "error";
   type RecordingDevicesState = "loading" | "ready" | "error";
   type RecordingCommandState = "starting" | "stopping" | "cancelling" | null;
   type TranscriptionCommandState = "mock" | "manual" | null;
@@ -78,6 +81,12 @@
     audioLabel: string;
     status: HistoryEntryStatus;
     statusLabel: string;
+  }
+
+  interface LatestManualOutcomeSettings {
+    autoCopy: boolean;
+    saveAudioFiles: boolean;
+    saveTranscriptionHistory: boolean;
   }
 
   const providerLabels = new Map(providerOptions.map((provider) => [provider.id, provider.label]));
@@ -100,11 +109,18 @@
   let historyState: HistoryState = "loading";
   let historyEntries: HistoryEntryViewModel[] = [];
   let historyError = "";
+  let historyDetailState: HistoryDetailState = "idle";
+  let historyDetailError = "";
   let historyBusyEntryId: string | null = null;
   let isClearingHistory = false;
+  let selectedHistoryEntryId: string | null = null;
+  let selectedHistoryEntry: HistoryTranscription | null = null;
+  let latestHistoryDetailRequest = 0;
   let activeTranscriptionCommand: TranscriptionCommandState = null;
+  let latestMockTranscriptionResult: RunMockTranscriptionResult | null = null;
   let latestTranscript: Transcript | null = null;
   let latestManualTranscriptionResult: RunCompletedRecordingTranscriptionResult | null = null;
+  let latestManualOutcomeSettings: LatestManualOutcomeSettings | null = null;
   let latestCompletedRecordingMetadata: RecordedAudioMetadata | null = null;
   let recordingDevicesState: RecordingDevicesState = "loading";
   let recordingDevicesError = "";
@@ -135,8 +151,8 @@
           ? "No recording inputs were reported by Rust."
           : `${availableRecordingDevices.length} microphone${availableRecordingDevices.length === 1 ? "" : "s"} available from Rust.`;
   $: mockHistoryModeLabel = $settingsDraft.saveTranscriptionHistory
-    ? "Mock transcripts will still be written to local history."
-    : "Mock transcripts will stay out of local history.";
+    ? "Mock transcripts will also be saved to local history."
+    : "Mock transcripts will stay out of local history because Save transcription history is off.";
   $: settingsStatusMessage =
     settingsState === "loading"
       ? "Loading saved preferences…"
@@ -189,13 +205,45 @@
         ? historyError
         : historyEntries.length === 0
           ? "No saved transcripts yet."
-          : `${historyEntries.length} saved transcript${historyEntries.length === 1 ? "" : "s"} loaded locally.`;
+          : `${historyEntries.length} saved history entr${historyEntries.length === 1 ? "y is" : "ies are"} available locally. Select one to review its full details.`;
   $: historyCountLabel =
     historyState === "loading"
       ? "Loading…"
       : historyState === "error"
         ? "Unavailable"
         : `${historyEntries.length} saved item${historyEntries.length === 1 ? "" : "s"}`;
+  $: selectedHistorySummary =
+    selectedHistoryEntryId === null
+      ? null
+      : historyEntries.find((entry) => entry.id === selectedHistoryEntryId) ?? null;
+  $: selectedHistoryStoredIssue = selectedHistoryEntry?.error?.trim() ?? "";
+  $: historyDetailTitle =
+    selectedHistorySummary?.title ??
+    (selectedHistoryEntry
+      ? createHistoryTitle(selectedHistoryEntry.text)
+      : "Select a saved history entry");
+  $: historyDetailStatusLabel =
+    historyDetailState === "loading"
+      ? "Loading"
+      : historyDetailState === "error"
+        ? "Unavailable"
+        : selectedHistoryStoredIssue !== ""
+          ? "Saved with warnings"
+          : selectedHistoryEntry
+            ? "Saved"
+            : "Select one";
+  $: selectedHistoryClipboardLabel = selectedHistoryEntry
+    ? describeStoredClipboardOutcome(
+        selectedHistoryEntry.copiedToClipboard,
+        selectedHistoryStoredIssue
+      )
+    : "—";
+  $: selectedHistoryAudioStatusLabel = selectedHistoryEntry
+    ? describeStoredAudioOutcome(selectedHistoryEntry.audioDeleted, selectedHistoryEntry.audioPath)
+    : "—";
+  $: selectedHistoryAudioPathLabel = selectedHistoryEntry
+    ? selectedHistoryEntry.audioPath ?? "No retained audio path."
+    : "—";
   $: transcribableRecordedAudio = $appStatus.recordedAudio;
   $: displayedRecordedAudio = transcribableRecordedAudio ?? latestCompletedRecordingMetadata;
   $: currentRecordingTiming = $appStatus.recordingTiming;
@@ -218,29 +266,44 @@
   $: manualHistoryLabel = latestManualTranscriptionResult
     ? describeManualHistoryOutcome(
         latestManualTranscriptionResult,
-        $settingsDraft.saveTranscriptionHistory
+        latestManualOutcomeSettings?.saveTranscriptionHistory ??
+          $settingsDraft.saveTranscriptionHistory
       )
     : null;
   $: manualClipboardLabel = latestManualTranscriptionResult
-    ? describeManualClipboardOutcome(latestManualTranscriptionResult, $settingsDraft.autoCopy)
+    ? describeManualClipboardOutcome(
+        latestManualTranscriptionResult,
+        latestManualOutcomeSettings?.autoCopy ?? $settingsDraft.autoCopy
+      )
     : null;
   $: manualAudioLabel = latestManualTranscriptionResult
-    ? describeManualAudioOutcome(latestManualTranscriptionResult, $settingsDraft.saveAudioFiles)
+    ? describeManualAudioOutcome(
+        latestManualTranscriptionResult,
+        latestManualOutcomeSettings?.saveAudioFiles ?? $settingsDraft.saveAudioFiles
+      )
     : null;
+  $: latestTranscriptHistoryLabel =
+    latestManualTranscriptionResult !== null
+      ? manualHistoryLabel
+      : latestMockTranscriptionResult !== null
+        ? describeMockHistoryOutcome(latestMockTranscriptionResult.savedToHistory)
+        : null;
   $: manualTranscriptionStatusMessage =
-    transcribableRecordedAudio === null
-      ? latestManualTranscriptionResult?.audioDeleted && !latestManualTranscriptionResult.audioDeleteError
-        ? "The last completed recording was transcribed and deleted using the saved cleanup setting. Record again to transcribe new audio."
-        : "Complete a local recording first, then run transcription manually from this screen."
-      : geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"
-        ? "Checking the OS keychain before enabling Gemini transcription…"
-        : geminiApiKeyPresenceState === "error"
-          ? "Unable to verify the Gemini API key right now. Recheck key status in Settings before running Gemini."
-          : !geminiApiKeyPresence
-            ? "Save a Gemini API key in Settings before running Gemini on the current recording."
-            : isRunningManualTranscription
-              ? "Gemini is transcribing the current local recording in Rust. Clipboard, history, and audio cleanup follow the saved settings."
-              : "Gemini can transcribe the current completed local recording on demand through the full Rust manual flow.";
+    latestManualTranscriptionResult !== null
+      ? manualTranscriptionWarnings.length === 0
+        ? "Manual transcription finished. Review the clipboard, history, and audio outcomes below."
+        : "Manual transcription finished with warnings. Review the clipboard, history, and audio outcomes below."
+      : transcribableRecordedAudio === null
+        ? "Complete a local recording first, then run transcription manually from this screen."
+        : geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"
+          ? "Checking the OS keychain before enabling Gemini transcription…"
+          : geminiApiKeyPresenceState === "error"
+            ? "Unable to verify the Gemini API key right now. Recheck key status in Settings before running Gemini."
+            : !geminiApiKeyPresence
+              ? "Save a Gemini API key in Settings before running Gemini on the current recording."
+              : isRunningManualTranscription
+                ? "Gemini is transcribing the current local recording in Rust. Clipboard, history, and audio cleanup follow the saved settings."
+                : "Gemini can transcribe the current completed local recording on demand through the full Rust manual flow.";
   $: canStartRecording =
     recordingDevicesState === "ready" &&
     recordingCommandState === null &&
@@ -561,15 +624,78 @@
     }
   }
 
-  async function loadHistoryEntries() {
+  function clearHistorySelection() {
+    latestHistoryDetailRequest += 1;
+    selectedHistoryEntryId = null;
+    selectedHistoryEntry = null;
+    historyDetailError = "";
+    historyDetailState = "idle";
+  }
+
+  async function selectHistoryEntry(id: string) {
+    if (
+      selectedHistoryEntryId === id &&
+      (historyDetailState === "loading" || (historyDetailState === "ready" && selectedHistoryEntry?.id === id))
+    ) {
+      return;
+    }
+
+    selectedHistoryEntryId = id;
+    selectedHistoryEntry = null;
+    historyDetailError = "";
+    historyDetailState = "loading";
+
+    const requestId = ++latestHistoryDetailRequest;
+
+    try {
+      const entry = await getTranscription(id);
+
+      if (requestId !== latestHistoryDetailRequest) {
+        return;
+      }
+
+      if (entry === null) {
+        throw new Error("The selected transcript is no longer available in local history.");
+      }
+
+      selectedHistoryEntry = entry;
+      historyDetailState = "ready";
+    } catch (error) {
+      if (requestId !== latestHistoryDetailRequest) {
+        return;
+      }
+
+      selectedHistoryEntry = null;
+      historyDetailError = error instanceof Error ? error.message : "Unable to load the selected transcript";
+      historyDetailState = "error";
+    }
+  }
+
+  async function loadHistoryEntries(preferredSelectionId: string | null = null) {
     historyState = "loading";
     historyError = "";
 
     try {
       historyEntries = (await getHistory()).map(mapHistoryEntry);
       historyState = "ready";
+
+      const nextSelectedId =
+        preferredSelectionId !== null && historyEntries.some((entry) => entry.id === preferredSelectionId)
+          ? preferredSelectionId
+          : selectedHistoryEntryId !== null &&
+              historyEntries.some((entry) => entry.id === selectedHistoryEntryId)
+            ? selectedHistoryEntryId
+            : historyEntries[0]?.id ?? null;
+
+      if (nextSelectedId === null) {
+        clearHistorySelection();
+        return;
+      }
+
+      await selectHistoryEntry(nextSelectedId);
     } catch (error) {
       historyEntries = [];
+      clearHistorySelection();
       historyError = error instanceof Error ? error.message : "Unable to load saved transcripts";
       historyState = "error";
     }
@@ -590,7 +716,20 @@
         throw new Error("The selected transcript was not found in local history.");
       }
 
+      const removedIndex = historyEntries.findIndex((entry) => entry.id === id);
       historyEntries = historyEntries.filter((entry) => entry.id !== id);
+
+      if (selectedHistoryEntryId === id) {
+        const fallbackEntry =
+          historyEntries[removedIndex] ?? historyEntries[Math.max(removedIndex - 1, 0)] ?? null;
+
+        if (fallbackEntry) {
+          await selectHistoryEntry(fallbackEntry.id);
+        } else {
+          clearHistorySelection();
+        }
+      }
+
       historyState = "ready";
     } catch (error) {
       historyError = error instanceof Error ? error.message : "Unable to delete the selected transcript";
@@ -610,6 +749,7 @@
     try {
       await clearHistory();
       historyEntries = [];
+      clearHistorySelection();
       historyState = "ready";
     } catch (error) {
       historyError = error instanceof Error ? error.message : "Unable to clear transcript history";
@@ -722,7 +862,9 @@
 
     recordingCommandState = "starting";
     latestTranscript = null;
+    latestMockTranscriptionResult = null;
     latestManualTranscriptionResult = null;
+    latestManualOutcomeSettings = null;
     latestCompletedRecordingMetadata = null;
 
     try {
@@ -760,7 +902,9 @@
 
       activeRecordingSession = null;
       latestTranscript = null;
+      latestMockTranscriptionResult = null;
       latestManualTranscriptionResult = null;
+      latestManualOutcomeSettings = null;
       const completedStatus = buildCompletedRecordingStatus(stoppedRecording);
       latestCompletedRecordingMetadata = completedStatus.recordedAudio;
       appStatus.setStatus(completedStatus);
@@ -794,7 +938,9 @@
       latestRecordingStatus = null;
       activeRecordingSession = null;
       latestTranscript = null;
+      latestMockTranscriptionResult = null;
       latestManualTranscriptionResult = null;
+      latestManualOutcomeSettings = null;
       latestCompletedRecordingMetadata = null;
       syncIdleStatus(
         cancelled.deletedAudioPath
@@ -825,7 +971,9 @@
     activeTranscriptionCommand = "mock";
     const previousRecordedAudio = get(appStatus).recordedAudio;
     latestTranscript = null;
+    latestMockTranscriptionResult = null;
     latestManualTranscriptionResult = null;
+    latestManualOutcomeSettings = null;
     latestCompletedRecordingMetadata = previousRecordedAudio;
 
     appStatus.setStatus(
@@ -841,6 +989,7 @@
     try {
       const result = await runMockTranscription();
 
+      latestMockTranscriptionResult = result;
       latestTranscript = result.transcript;
       appStatus.setStatus(buildCompletedMockStatus(result, previousRecordedAudio));
 
@@ -848,6 +997,7 @@
         await loadHistoryEntries();
       }
     } catch (error) {
+      latestMockTranscriptionResult = null;
       latestTranscript = null;
       appStatus.setStatus(
         getAppStatusForPhase("error", {
@@ -869,9 +1019,18 @@
       return;
     }
 
+    const currentSettings = get(settingsDraft);
+    const manualOutcomeSettings: LatestManualOutcomeSettings = {
+      autoCopy: currentSettings.autoCopy,
+      saveAudioFiles: currentSettings.saveAudioFiles,
+      saveTranscriptionHistory: currentSettings.saveTranscriptionHistory
+    };
+
     activeTranscriptionCommand = "manual";
     latestTranscript = null;
+    latestMockTranscriptionResult = null;
     latestManualTranscriptionResult = null;
+    latestManualOutcomeSettings = null;
 
     appStatus.setStatus(
       getAppStatusForPhase("transcribing", {
@@ -893,14 +1052,17 @@
 
       latestTranscript = result.transcript;
       latestManualTranscriptionResult = result;
+      latestManualOutcomeSettings = manualOutcomeSettings;
       latestCompletedRecordingMetadata = transcribableRecordedAudio;
       appStatus.setStatus(buildCompletedManualStatus(result, transcribableRecordedAudio, retainedRecordedAudio));
 
       if (result.historySaved) {
-        await loadHistoryEntries();
+        await loadHistoryEntries(result.historyId);
       }
     } catch (error) {
       latestTranscript = null;
+      latestMockTranscriptionResult = null;
+      latestManualOutcomeSettings = null;
       appStatus.setStatus(
         getAppStatusForPhase("error", {
           inputLabel: transcribableRecordedAudio.inputDeviceName,
@@ -922,7 +1084,9 @@
     latestRecordingStatus = null;
     activeRecordingSession = null;
     latestTranscript = null;
+    latestMockTranscriptionResult = null;
     latestManualTranscriptionResult = null;
+    latestManualOutcomeSettings = null;
     latestCompletedRecordingMetadata = null;
     syncIdleStatus();
   }
@@ -1078,13 +1242,11 @@
     result: RunMockTranscriptionResult,
     recordedAudio: RecordedAudioMetadata | null
   ) {
-    const historyDetail = result.savedToHistory
-      ? "Saved to the local SQLite history because the persisted setting enables history."
-      : "Not saved to SQLite because the persisted setting disables transcription history.";
+    const historyDetail = describeMockHistoryOutcome(result.savedToHistory);
 
     return getAppStatusForPhase("completed", {
       headline: "Mock transcript ready.",
-      detail: `${historyDetail} The result remains intentionally fake and separate from the full manual Gemini flow in Release 1.0.`,
+      detail: `${historyDetail} The result remains intentionally fake and separate from the Release 1.1 manual Gemini flow.`,
       transcriptTitle: result.savedToHistory
         ? "Mock transcript saved locally"
         : "Mock transcript kept in memory only",
@@ -1111,7 +1273,13 @@
     return getAppStatusForPhase("completed", {
       headline: warnings.length === 0 ? "Transcript ready." : "Transcript ready with warnings.",
       detail: outcomeSummary,
-      transcriptTitle: result.historySaved ? "Transcript saved locally" : "Transcript ready in preview",
+      transcriptTitle: result.historySaved
+        ? warnings.length === 0
+          ? "Transcript saved locally"
+          : "Transcript saved locally with warnings"
+        : result.historyError
+          ? "Transcript ready in preview only"
+          : "Transcript ready in preview",
       transcriptPreview: result.transcript.text,
       inputLabel: recordedAudio.inputDeviceName,
       durationLabel: formatDuration(result.transcript.durationMs ?? recordedAudio.durationMs),
@@ -1142,21 +1310,29 @@
     );
   }
 
+  function describeMockHistoryOutcome(savedToHistory: boolean): string {
+    return savedToHistory
+      ? "Saved to local history."
+      : "Local history was skipped because Save transcription history is turned off.";
+  }
+
   function describeManualHistoryOutcome(
     result: RunCompletedRecordingTranscriptionResult,
     saveTranscriptionHistory: boolean
   ): string {
     if (result.historySaved) {
-      return "Saved to the local SQLite history.";
+      return collectOutcomeWarnings(result).length === 0
+        ? "Saved to local history."
+        : "Saved to local history with warnings recorded on the entry.";
     }
 
     if (result.historyError) {
-      return "History saving reported a warning.";
+      return "Could not save to local history, so this transcript stays in the current preview.";
     }
 
     return saveTranscriptionHistory
-      ? "History save was skipped."
-      : "History save was skipped by the saved setting.";
+      ? "Local history was not updated."
+      : "Local history was skipped because Save transcription history is turned off.";
   }
 
   function describeManualClipboardOutcome(
@@ -1168,12 +1344,12 @@
     }
 
     if (result.clipboardError) {
-      return "Clipboard copy reported a warning.";
+      return "Clipboard copy failed, so the transcript stayed in SpeakEx only.";
     }
 
     return autoCopy
-      ? "Clipboard copy did not complete."
-      : "Clipboard copy was skipped by the saved setting.";
+      ? "Clipboard copy was requested but did not finish."
+      : "Clipboard copy was skipped because Auto-copy transcript is turned off.";
   }
 
   function describeManualAudioOutcome(
@@ -1185,16 +1361,40 @@
     }
 
     if (result.audioDeleteError) {
-      return "Audio cleanup reported a warning and the file was retained locally.";
+      return "Audio cleanup failed, so the local audio file was retained.";
     }
 
     if (result.retainedAudioPath) {
       return saveAudioFiles
-        ? "The local audio file was retained by the saved setting."
+        ? "The local audio file was retained because Save audio files is turned on."
         : "The local audio file was retained locally.";
     }
 
-    return "The local audio file state is unchanged.";
+    return "The local audio file outcome is unavailable.";
+  }
+
+  function describeStoredClipboardOutcome(
+    copiedToClipboard: boolean,
+    storedIssue: string
+  ): string {
+    if (copiedToClipboard) {
+      return "Copied to clipboard";
+    }
+
+    return storedIssue === ""
+      ? "Not copied to clipboard"
+      : "Not copied to clipboard (see warnings)";
+  }
+
+  function describeStoredAudioOutcome(
+    audioDeleted: boolean,
+    audioPath: string | null
+  ): string {
+    if (audioDeleted) {
+      return "Deleted after transcription";
+    }
+
+    return audioPath ? "Retained locally" : "No retained audio";
   }
 
   function mapStoppedRecording(stoppedRecording: StoppedRecording): RecordedAudioMetadata {
@@ -1221,10 +1421,10 @@
       createdAtLabel: formatCreatedAt(entry.createdAt),
       durationLabel: formatDuration(entry.durationMs),
       languageLabel: entry.language ?? "Auto / unspecified",
-      clipboardLabel: entry.copiedToClipboard ? "Copied" : "Not copied",
-      audioLabel: entry.hasAudioFile ? "Saved" : "None",
+      clipboardLabel: entry.copiedToClipboard ? "Copied to clipboard" : "Not copied to clipboard",
+      audioLabel: entry.hasAudioFile ? "Audio retained" : "No retained audio",
       status: entry.hasError ? "attention" : "saved",
-      statusLabel: entry.hasError ? "Stored with error" : "Stored"
+      statusLabel: entry.hasError ? "Saved with warnings" : "Saved"
     };
   }
 
@@ -1308,11 +1508,11 @@
 <main class="app-shell">
   <aside class="sidebar">
     <div class="brand-block">
-      <p class="eyebrow">Release 1.0</p>
+      <p class="eyebrow">Release 1.1</p>
       <h1>SpeakEx</h1>
       <p class="brand-copy">
-        Local-first transcription for the desktop. This release keeps recording explicit while the
-        Rust manual flow handles Gemini, clipboard, history, and default audio cleanup.
+        Local-first transcription for the desktop. Release 1.1 keeps the manual flow intact while
+        making clipboard, history, and saved-entry outcomes easier to understand.
       </p>
     </div>
 
@@ -1365,11 +1565,11 @@
       </div>
         <p class="workspace-copy">
           {#if $activeSection === "recording"}
-          The recording workspace now polls explicit recorder status, keeps mock transcription
-          separate, and runs the full manual MVP flow for completed local recordings.
+          The recording workspace keeps manual transcription explicit and now explains clipboard,
+          history, and audio outcomes more clearly after each run.
         {:else if $activeSection === "history"}
-          Saved transcript history loads from the local database. The mock path and the manual
-          recording flow both write here when history is enabled.
+          Saved transcript history loads from the local database, and the selected detail panel now
+          shows the full transcript plus stored clipboard and audio outcomes.
         {:else}
           Provider selection and preferences still hydrate from local storage, and the preferred
           microphone now reflects the real device list exposed by Rust.
@@ -1388,7 +1588,7 @@
             <p class:pending={recordingDevicesState === "loading"} class:success={recordingDevicesState === "ready"} class:error={recordingDevicesState === "error"}>
               {recordingDevicesStatusMessage}
             </p>
-            <p class="phase-note">Release 1.0 keeps recording explicit. Stop still only creates a completed local recording until you transcribe manually.</p>
+            <p class="phase-note">Release 1.1 keeps recording explicit. Stop still only creates a completed local recording until you transcribe manually.</p>
             <p class="phase-note"><strong>{recordingLimitLabel}</strong> · Elapsed {elapsedTimeLabel} · Remaining {remainingTimeLabel}</p>
             <p class="phase-note">{mockHistoryModeLabel}</p>
           </div>
@@ -1496,7 +1696,7 @@
               </div>
               <div>
                 <dt>History</dt>
-                <dd>{latestTranscript.provider === "gemini" && manualHistoryLabel ? manualHistoryLabel : $settingsDraft.saveTranscriptionHistory ? "Saved if enabled" : "Not saved"}</dd>
+                <dd>{latestTranscriptHistoryLabel ?? "History outcome unavailable."}</dd>
               </div>
             </dl>
           {/if}
@@ -1716,8 +1916,8 @@
         </section>
       </div>
     {:else if $activeSection === "history"}
-      <div class="view-grid placeholder-grid">
-        <section class="card list-card">
+      <div class="view-grid history-grid">
+        <section class="card list-card history-toolbar-card">
           <div class="section-heading">
             <div>
               <p class="label">History</p>
@@ -1728,16 +1928,21 @@
             </span>
           </div>
           <p>
-            This view reads saved transcripts from SQLite through explicit native commands. In Release
-            1.0, the separate mock transcription flow and the manual recording flow can both write
-            entries here when history is enabled.
+            This view reads saved transcripts from SQLite through explicit native commands. Each saved
+            card summarizes clipboard and audio outcomes, and the selected detail panel shows the full
+            transcript plus stored metadata without leaving this screen.
           </p>
           <div class="history-toolbar">
             <p class:pending={historyState === "loading"} class:success={historyState === "ready" && historyError === ""} class:error={historyError !== ""}>
               {historyStatusMessage}
             </p>
             <div class="history-actions">
-              <button type="button" class="ghost-button" on:click={loadHistoryEntries} disabled={historyState === "loading" || isClearingHistory}>
+              <button
+                type="button"
+                class="ghost-button"
+                on:click={() => void loadHistoryEntries()}
+                disabled={historyState === "loading" || isClearingHistory}
+              >
                 {historyState === "loading" ? "Loading…" : "Reload"}
               </button>
               <button
@@ -1763,7 +1968,9 @@
             <p class="label">History</p>
             <h3>History is unavailable</h3>
             <p>{historyError}</p>
-            <button type="button" class="ghost-button" on:click={loadHistoryEntries}>Try again</button>
+            <button type="button" class="ghost-button" on:click={() => void loadHistoryEntries()}>
+              Try again
+            </button>
           </section>
         {:else if historyEntries.length === 0}
           <section class="card empty-card">
@@ -1782,8 +1989,101 @@
             </section>
           {/if}
 
+          <section class="card list-card history-detail-card">
+            <div class="section-heading">
+              <div>
+                <p class="label">Selected history entry</p>
+                <h3>{historyDetailTitle}</h3>
+              </div>
+              <span
+                class="status-pill"
+                class:muted={historyDetailState === "ready" && selectedHistoryStoredIssue === ""}
+                class:errorState={historyDetailState === "error" || selectedHistoryStoredIssue !== ""}
+              >
+                {historyDetailStatusLabel}
+              </span>
+            </div>
+
+            {#if historyDetailState === "loading"}
+              <div class="transcript-placeholder">
+                <p>Loading transcript details…</p>
+                <p>
+                  The app is requesting the full saved transcript and metadata through the explicit
+                  <code>get_transcription</code> command.
+                </p>
+              </div>
+            {:else if historyDetailState === "error"}
+              <div class="current-state-panel phase-error">
+                <p class="label">History detail</p>
+                <p>{historyDetailError}</p>
+              </div>
+            {:else if selectedHistoryEntry}
+              <p>
+                Saved locally on {formatCreatedAt(selectedHistoryEntry.createdAt)}. This panel shows the
+                full transcript text plus the clipboard, audio, and warning outcomes stored on that
+                history entry.
+              </p>
+
+              <dl class="history-meta">
+                <div>
+                  <dt>Provider</dt>
+                  <dd>{selectedHistoryEntry.provider}</dd>
+                </div>
+                <div>
+                  <dt>Model</dt>
+                  <dd>{selectedHistoryEntry.model ?? "Default"}</dd>
+                </div>
+                <div>
+                  <dt>Language</dt>
+                  <dd>{selectedHistoryEntry.language ?? "Auto / unspecified"}</dd>
+                </div>
+                <div>
+                  <dt>Duration</dt>
+                  <dd>{formatDuration(selectedHistoryEntry.durationMs)}</dd>
+                </div>
+                <div>
+                  <dt>Clipboard</dt>
+                  <dd>{selectedHistoryClipboardLabel}</dd>
+                </div>
+                <div>
+                  <dt>Audio status</dt>
+                  <dd>{selectedHistoryAudioStatusLabel}</dd>
+                </div>
+                <div>
+                  <dt>Audio path</dt>
+                  <dd>{selectedHistoryAudioPathLabel}</dd>
+                </div>
+                <div>
+                  <dt>Created</dt>
+                  <dd>{formatCreatedAt(selectedHistoryEntry.createdAt)}</dd>
+                </div>
+                <div>
+                  <dt>History ID</dt>
+                  <dd>{selectedHistoryEntry.id}</dd>
+                </div>
+              </dl>
+
+              {#if selectedHistoryStoredIssue !== ""}
+                <div class="current-state-panel phase-error">
+                  <p class="label">Stored error or warning</p>
+                  <p>{selectedHistoryStoredIssue}</p>
+                </div>
+              {/if}
+
+              <div class="history-transcript">
+                <p class="label">Transcript text</p>
+                <pre class="history-transcript-body">{selectedHistoryEntry.text.trim() === "" ? "Saved transcript text is empty." : selectedHistoryEntry.text}</pre>
+              </div>
+            {:else}
+              <div class="transcript-placeholder">
+                <p>Choose a saved history entry</p>
+                <p>Select an item from the list below to inspect its full stored text and outcomes.</p>
+              </div>
+            {/if}
+          </section>
+
           {#each historyEntries as entry}
-            <article class="card history-card">
+            <article class="card history-card" class:selected={selectedHistoryEntryId === entry.id}>
               <div class="section-heading">
                 <div>
                   <p class="label">{entry.createdAtLabel}</p>
@@ -1820,6 +2120,19 @@
               </dl>
 
               <div class="history-card-actions">
+                <button
+                  type="button"
+                  class="ghost-button"
+                  aria-pressed={selectedHistoryEntryId === entry.id}
+                  on:click={() => void selectHistoryEntry(entry.id)}
+                  disabled={isClearingHistory || historyBusyEntryId === entry.id}
+                >
+                  {selectedHistoryEntryId === entry.id
+                    ? historyDetailState === "loading"
+                      ? "Loading…"
+                      : "Viewing"
+                    : "Open details"}
+                </button>
                 <button
                   type="button"
                   class="ghost-button"
@@ -2251,6 +2564,11 @@
     grid-template-columns: repeat(12, minmax(0, 1fr));
   }
 
+  .history-grid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    align-items: start;
+  }
+
   .placeholder-grid {
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   }
@@ -2306,6 +2624,12 @@
   .history-actions,
   .history-card-actions {
     justify-content: flex-end;
+  }
+
+  .history-toolbar-card,
+  .history-detail-card,
+  .history-grid > .empty-card {
+    grid-column: 1 / -1;
   }
 
   .transcript-card {
@@ -2433,6 +2757,39 @@
     display: grid;
     align-content: start;
     gap: 0.85rem;
+  }
+
+  .history-card {
+    grid-column: span 6;
+  }
+
+  .history-card.selected {
+    border: 1px solid rgba(125, 211, 252, 0.38);
+    background: rgba(30, 64, 175, 0.18);
+  }
+
+  .history-detail-card dd {
+    word-break: break-word;
+  }
+
+  .history-transcript {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .history-transcript-body {
+    margin: 0;
+    padding: 1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(15, 23, 42, 0.72);
+    color: #f8fafc;
+    font: inherit;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow: auto;
+    max-height: 420px;
   }
 
   .controller-card {
@@ -2565,8 +2922,13 @@
       grid-template-columns: 1fr;
     }
 
+    .history-grid {
+      grid-template-columns: 1fr;
+    }
+
     .hero-card,
     .transcript-card,
+    .history-card,
     .meta-card,
     .steps-card {
       grid-column: span 1;
