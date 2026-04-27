@@ -1,0 +1,16 @@
+[package]
+name = "speakex"
+version = "0.1.0"
+description = "Local-first desktop transcription app scaffold built with Tauri v2"
+authors = ["rafaself"]
+edition = "2021"
+
+[lib]
+name = "speakex_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
