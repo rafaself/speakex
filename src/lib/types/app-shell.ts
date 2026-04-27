@@ -10,6 +10,13 @@ export interface NavigationSection {
   blurb: string;
 }
 
+export interface RecordingTiming {
+  elapsedMs: number | null;
+  remainingMs: number | null;
+  maxDurationMs: number | null;
+  limitReached: boolean;
+}
+
 export interface RecordedAudioMetadata {
   sessionId: string;
   path: string;
@@ -19,6 +26,8 @@ export interface RecordedAudioMetadata {
   sampleRateHz: number;
   channels: number;
   fileSizeBytes: number;
+  limitReached: boolean;
+  maxDurationMs: number | null;
 }
 
 export interface AppStatus {
@@ -30,6 +39,7 @@ export interface AppStatus {
   transcriptPreview: string;
   inputLabel: string;
   durationLabel: string;
+  recordingTiming: RecordingTiming | null;
   recordedAudio: RecordedAudioMetadata | null;
 }
 

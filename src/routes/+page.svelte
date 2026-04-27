@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { get } from "svelte/store";
 
   import {
@@ -12,11 +12,13 @@
   import { ping } from "$lib/native/ping";
   import {
     cancelRecording,
+    getRecordingStatus,
     listRecordingInputDevices,
     startRecording,
     stopRecording,
     type ActiveRecordingSession,
     type RecordingInputDevice,
+    type RecordingStatus,
     type StoppedRecording
   } from "$lib/native/recording";
   import {
@@ -39,7 +41,7 @@
     type DraftToggleKey
   } from "$lib/stores/app-shell";
   import type { ProviderId } from "$lib/settings/schema";
-  import type { RecordedAudioMetadata, SettingsDraft } from "$lib/types/app-shell";
+  import type { RecordedAudioMetadata, RecordingTiming, SettingsDraft } from "$lib/types/app-shell";
 
   type PingState = "idle" | "loading" | "success" | "error";
   type SettingsState = "idle" | "loading" | "saving" | "error";
@@ -64,6 +66,8 @@
   }
 
   const providerLabels = new Map(providerOptions.map((provider) => [provider.id, provider.label]));
+  const fallbackRecordingLimitMs = 15 * 60 * 1000;
+  const recordingStatusPollIntervalMs = 1000;
 
   let pingState: PingState = "idle";
   let pingResponse = "";
@@ -84,6 +88,9 @@
   let availableRecordingDevices: RecordingInputDevice[] = [];
   let recordingCommandState: RecordingCommandState = null;
   let activeRecordingSession: ActiveRecordingSession | null = null;
+  let recordingStatusPoller: ReturnType<typeof window.setInterval> | null = null;
+  let isRefreshingRecordingStatus = false;
+  let latestRecordingStatus: RecordingStatus | null = null;
 
   $: selectedProviderLabel = providerLabels.get($providerSelection) ?? "Unknown provider";
   $: selectedMicrophoneOption =
@@ -126,6 +133,18 @@
         ? "Unavailable"
         : `${historyEntries.length} saved item${historyEntries.length === 1 ? "" : "s"}`;
   $: currentRecordedAudio = $appStatus.recordedAudio;
+  $: currentRecordingTiming = $appStatus.recordingTiming;
+  $: elapsedTimeLabel = formatDuration(currentRecordingTiming?.elapsedMs ?? currentRecordedAudio?.durationMs ?? null);
+  $: remainingTimeLabel = formatDuration(currentRecordingTiming?.remainingMs ?? null);
+  $: maxDurationLabel = formatDuration(resolveRecordingLimitMs());
+  $: recordingLimitLabel = `Automatic stop at ${maxDurationLabel}`;
+  $: stopReasonLabel =
+    currentRecordedAudio?.limitReached || currentRecordingTiming?.limitReached
+      ? `Stopped automatically at the ${maxDurationLabel} limit`
+      : currentRecordedAudio
+        ? "Stopped manually and kept locally"
+        : "No completed recording yet";
+  $: statusPollingLabel = activeRecordingSession === null ? "Inactive" : "Polling every second";
   $: canStartRecording =
     recordingDevicesState === "ready" &&
     recordingCommandState === null &&
@@ -169,7 +188,11 @@
   async function initializeWorkspace() {
     await hydrateSettings();
     await loadRecordingDevices();
-    syncIdleStatus();
+    await syncRecorderFromNative(true);
+
+    if (activeRecordingSession === null && get(appStatus).phase === "idle") {
+      syncIdleStatus();
+    }
   }
 
   async function hydrateSettings() {
@@ -262,6 +285,141 @@
 
     if (activeRecordingSession === null && get(appStatus).phase === "idle") {
       syncIdleStatus();
+    }
+  }
+
+  function startRecordingStatusPolling() {
+    if (recordingStatusPoller !== null) {
+      return;
+    }
+
+    recordingStatusPoller = window.setInterval(() => {
+      void syncRecorderFromNative(true);
+    }, recordingStatusPollIntervalMs);
+  }
+
+  function stopRecordingStatusPolling() {
+    if (recordingStatusPoller === null) {
+      return;
+    }
+
+    window.clearInterval(recordingStatusPoller);
+    recordingStatusPoller = null;
+  }
+
+  async function syncRecorderFromNative(suppressErrors = false) {
+    if (isRefreshingRecordingStatus) {
+      return;
+    }
+
+    isRefreshingRecordingStatus = true;
+
+    try {
+      const status = await getRecordingStatus();
+
+      latestRecordingStatus = status;
+      await applyNativeRecordingStatus(status);
+    } catch (error) {
+      if (!suppressErrors && activeRecordingSession !== null && recordingCommandState === null) {
+        stopRecordingStatusPolling();
+        activeRecordingSession = null;
+        appStatus.setStatus(
+          getAppStatusForPhase("error", {
+            detail:
+              error instanceof Error
+                ? error.message
+                : "Unable to refresh the native recording status.",
+            transcriptPreview:
+              "The UI could not read the explicit recorder status surface. No transcription ran automatically.",
+            inputLabel: selectedMicrophoneLabel,
+            recordingTiming: null,
+            recordedAudio: get(appStatus).recordedAudio
+          })
+        );
+      }
+    } finally {
+      isRefreshingRecordingStatus = false;
+    }
+  }
+
+  async function applyNativeRecordingStatus(status: RecordingStatus) {
+    const isActivePhase =
+      status.phase === "starting" ||
+      status.phase === "recording" ||
+      status.phase === "stopping" ||
+      status.phase === "cancelling";
+
+    if (isActivePhase && status.activeSessionId && status.inputDeviceName) {
+      activeRecordingSession = {
+        id: status.activeSessionId,
+        inputDeviceName: status.inputDeviceName
+      };
+      appStatus.setStatus(buildActiveRecordingStatus(status));
+      startRecordingStatusPolling();
+      return;
+    }
+
+    stopRecordingStatusPolling();
+
+    if (
+      activeRecordingSession !== null &&
+      status.lastCompletedSessionId !== null &&
+      status.lastCompletedSessionId === activeRecordingSession.id &&
+      recordingCommandState === null
+    ) {
+      await finalizeCompletedRecording(status);
+      return;
+    }
+
+    if (status.phase === "idle" && activeRecordingSession === null && get(appStatus).phase === "idle") {
+      syncIdleStatus();
+    }
+  }
+
+  async function finalizeCompletedRecording(status: RecordingStatus) {
+    const recordingTiming = buildRecordingTimingFromStatus(status);
+
+    recordingCommandState = "stopping";
+    appStatus.setStatus(
+      getAppStatusForPhase("recording", {
+        headline: status.limitReached ? "Maximum duration reached." : "Finalizing recorded audio.",
+        detail: status.limitReached
+          ? `Capture stopped automatically after reaching the ${formatDuration(status.maxDurationMs)} maximum. Finalizing the local WAV file now.`
+          : "The recorder has stopped. Finalizing the local WAV file now.",
+        transcriptPreview: status.limitReached
+          ? "The app is preparing the completed recording after the automatic safety stop. No transcription will run automatically."
+          : "The app is preparing the completed recording metadata. No transcription will run automatically.",
+        inputLabel: status.inputDeviceName ?? selectedMicrophoneLabel,
+        durationLabel: buildDurationSummaryLabel(recordingTiming),
+        recordingTiming,
+        recordedAudio: null
+      })
+    );
+
+    try {
+      const stoppedRecording = await stopRecording();
+
+      activeRecordingSession = null;
+      appStatus.setStatus(buildCompletedRecordingStatus(stoppedRecording));
+    } catch (error) {
+      activeRecordingSession = null;
+      appStatus.setStatus(
+        getAppStatusForPhase("error", {
+          detail:
+            error instanceof Error
+              ? error.message
+              : "Unable to finalize the completed recording.",
+          transcriptPreview: status.limitReached
+            ? "The recorder hit the hard time limit, but the UI could not finish loading the completed recording metadata. No transcription ran automatically."
+            : "The UI could not finish loading the completed recording metadata. No transcription ran automatically.",
+          inputLabel: status.inputDeviceName ?? selectedMicrophoneLabel,
+          durationLabel: buildDurationSummaryLabel(recordingTiming),
+          recordingTiming,
+          recordedAudio: null
+        })
+      );
+    } finally {
+      recordingCommandState = null;
     }
   }
 
@@ -377,17 +535,9 @@
       const session = await startRecording(resolveSelectedDeviceName());
 
       activeRecordingSession = session;
-      appStatus.setStatus(
-        getAppStatusForPhase("recording", {
-          detail:
-            "Audio capture is active through Rust. Use Stop to keep the temporary WAV file or Cancel to delete it.",
-          transcriptPreview:
-            `Recording session ${session.id} is writing a temporary WAV file in the app cache. No transcription will run automatically.`,
-          inputLabel: session.inputDeviceName,
-          durationLabel: "Recording…",
-          recordedAudio: null
-        })
-      );
+      appStatus.setStatus(buildActiveRecordingStatus(buildFallbackRecordingStatus(session)));
+      await syncRecorderFromNative(true);
+      startRecordingStatusPolling();
     } catch (error) {
       appStatus.setStatus(
         getAppStatusForPhase("error", {
@@ -409,6 +559,7 @@
     }
 
     recordingCommandState = "stopping";
+    stopRecordingStatusPolling();
 
     try {
       const stoppedRecording = await stopRecording();
@@ -437,10 +588,12 @@
     }
 
     recordingCommandState = "cancelling";
+    stopRecordingStatusPolling();
 
     try {
       const cancelled = await cancelRecording();
 
+      latestRecordingStatus = null;
       activeRecordingSession = null;
       syncIdleStatus(
         cancelled.deletedAudioPath
@@ -476,6 +629,7 @@
         inputLabel: selectedMicrophoneLabel,
         detail:
           "The frontend is waiting on the explicit Rust mock transcription command. Any recorded WAV file remains separate from this fake flow.",
+        recordingTiming: previousRecordedAudio ? buildRecordingTimingFromRecordedAudio(previousRecordedAudio) : null,
         recordedAudio: previousRecordedAudio
       })
     );
@@ -495,6 +649,7 @@
           detail: error instanceof Error ? error.message : "Unable to finish the mock transcription flow.",
           transcriptPreview:
             "The built-in mock transcription command did not finish. Any recorded audio remains local and separate from this fake provider path.",
+          recordingTiming: previousRecordedAudio ? buildRecordingTimingFromRecordedAudio(previousRecordedAudio) : null,
           recordedAudio: previousRecordedAudio
         })
       );
@@ -504,6 +659,8 @@
   }
 
   function resetWorkspace() {
+    stopRecordingStatusPolling();
+    latestRecordingStatus = null;
     activeRecordingSession = null;
     syncIdleStatus();
   }
@@ -512,6 +669,10 @@
     void runPing();
     void initializeWorkspace();
     void loadHistoryEntries();
+  });
+
+  onDestroy(() => {
+    stopRecordingStatusPolling();
   });
 
   function syncIdleStatus(detail = buildIdleDetail()) {
@@ -526,6 +687,7 @@
               : "Start a recording to capture a temporary WAV file locally, or run the mock transcription path separately.",
         inputLabel: selectedMicrophoneLabel,
         durationLabel: "—",
+        recordingTiming: null,
         recordedAudio: null
       })
     );
@@ -553,17 +715,99 @@
     return selectedMicrophone === "default" ? null : selectedMicrophone;
   }
 
+  function resolveRecordingLimitMs() {
+    return (
+      latestRecordingStatus?.maxDurationMs ??
+      get(appStatus).recordingTiming?.maxDurationMs ??
+      get(appStatus).recordedAudio?.maxDurationMs ??
+      fallbackRecordingLimitMs
+    );
+  }
+
+  function buildFallbackRecordingStatus(session: ActiveRecordingSession): RecordingStatus {
+    const maxDurationMs = resolveRecordingLimitMs();
+
+    return {
+      phase: "recording",
+      activeSessionId: session.id,
+      inputDeviceName: session.inputDeviceName,
+      elapsedMs: 0,
+      remainingMs: maxDurationMs,
+      maxDurationMs,
+      limitReached: false,
+      lastCompletedSessionId: null
+    };
+  }
+
+  function buildRecordingTimingFromStatus(status: RecordingStatus): RecordingTiming {
+    return {
+      elapsedMs: status.elapsedMs,
+      remainingMs: status.remainingMs,
+      maxDurationMs: status.maxDurationMs,
+      limitReached: status.limitReached
+    };
+  }
+
+  function buildRecordingTimingFromRecordedAudio(recordedAudio: RecordedAudioMetadata): RecordingTiming {
+    return {
+      elapsedMs: recordedAudio.durationMs,
+      remainingMs:
+        recordedAudio.durationMs === null || recordedAudio.maxDurationMs === null
+          ? null
+          : Math.max(recordedAudio.maxDurationMs - recordedAudio.durationMs, 0),
+      maxDurationMs: recordedAudio.maxDurationMs,
+      limitReached: recordedAudio.limitReached
+    };
+  }
+
+  function buildDurationSummaryLabel(recordingTiming: RecordingTiming | null): string {
+    if (!recordingTiming) {
+      return "—";
+    }
+
+    return `${formatDuration(recordingTiming.elapsedMs)} elapsed · ${formatDuration(recordingTiming.remainingMs)} remaining`;
+  }
+
+  function buildActiveRecordingStatus(status: RecordingStatus) {
+    const recordingTiming = buildRecordingTimingFromStatus(status);
+
+    return getAppStatusForPhase("recording", {
+      headline:
+        status.phase === "starting"
+          ? "Recording is starting."
+          : status.phase === "stopping"
+            ? "Recording is stopping."
+            : status.phase === "cancelling"
+              ? "Recording is cancelling."
+              : "Recording is in progress.",
+      detail: `Audio capture is active through Rust and will stop automatically at ${formatDuration(status.maxDurationMs)}. Use Stop to keep the temporary WAV file or Cancel to discard it sooner.`,
+      transcriptTitle: "Live capture in progress…",
+      transcriptPreview: `Recording session ${status.activeSessionId ?? "current"} is writing a temporary WAV file in the app cache. No transcription will run automatically, including when the duration limit is reached.`,
+      inputLabel: status.inputDeviceName ?? selectedMicrophoneLabel,
+      durationLabel: buildDurationSummaryLabel(recordingTiming),
+      recordingTiming,
+      recordedAudio: null
+    });
+  }
+
   function buildCompletedRecordingStatus(stoppedRecording: StoppedRecording) {
     const recordedAudio = mapStoppedRecording(stoppedRecording);
+    const recordingTiming = buildRecordingTimingFromRecordedAudio(recordedAudio);
 
     return getAppStatusForPhase("completed", {
-      headline: "Recorded audio is ready.",
-      detail:
-        "The recorder stopped successfully and kept the temporary WAV file for later releases. No transcription ran automatically.",
+      headline: stoppedRecording.limitReached
+        ? `Recording stopped at the ${formatDuration(recordingTiming.maxDurationMs)} limit.`
+        : "Recorded audio is ready.",
+      detail: stoppedRecording.limitReached
+        ? `Capture stopped automatically because the maximum recording duration of ${formatDuration(recordingTiming.maxDurationMs)} was reached. The WAV file was kept locally, and no transcription ran automatically.`
+        : "The recorder stopped successfully and kept the temporary WAV file for later releases. No transcription ran automatically.",
       transcriptTitle: "Recorded audio metadata",
-      transcriptPreview: `${formatFileName(recordedAudio.path)} is available locally and ready for later manual flows.`,
+      transcriptPreview: stoppedRecording.limitReached
+        ? `${formatFileName(recordedAudio.path)} was captured locally after the automatic safety stop. Run the mock transcription flow separately if you want a fake transcript.`
+        : `${formatFileName(recordedAudio.path)} is available locally and ready for later manual flows.`,
       inputLabel: stoppedRecording.inputDeviceName,
-      durationLabel: formatDuration(recordedAudio.durationMs),
+      durationLabel: buildDurationSummaryLabel(recordingTiming),
+      recordingTiming,
       recordedAudio
     });
   }
@@ -578,13 +822,14 @@
 
     return getAppStatusForPhase("completed", {
       headline: "Mock transcript ready.",
-      detail: `${historyDetail} The result is still intentionally fake and separate from recorded audio in Release 0.6.`,
+      detail: `${historyDetail} The result is still intentionally fake and separate from recorded audio in Release 0.7.`,
       transcriptTitle: result.savedToHistory
         ? "Mock transcript saved locally"
         : "Mock transcript kept in memory only",
       transcriptPreview: result.transcript.text,
       inputLabel: selectedMicrophoneLabel,
       durationLabel: formatDuration(result.transcript.durationMs),
+      recordingTiming: recordedAudio ? buildRecordingTimingFromRecordedAudio(recordedAudio) : null,
       recordedAudio
     });
   }
@@ -598,7 +843,9 @@
       inputDeviceName: stoppedRecording.inputDeviceName,
       sampleRateHz: stoppedRecording.sampleRateHz,
       channels: stoppedRecording.channels,
-      fileSizeBytes: stoppedRecording.fileSizeBytes
+      fileSizeBytes: stoppedRecording.fileSizeBytes,
+      limitReached: stoppedRecording.limitReached,
+      maxDurationMs: resolveRecordingLimitMs()
     };
   }
 
@@ -698,11 +945,11 @@
 <main class="app-shell">
   <aside class="sidebar">
     <div class="brand-block">
-      <p class="eyebrow">Release 0.6</p>
+      <p class="eyebrow">Release 0.7</p>
       <h1>SpeakEx</h1>
       <p class="brand-copy">
-        Local-first transcription for the desktop. This release wires the UI to the real recorder
-        commands while keeping mock transcription as a separate explicit action.
+        Local-first transcription for the desktop. This release adds a hard 15-minute recording
+        cap with explicit status polling while keeping mock transcription as a separate action.
       </p>
     </div>
 
@@ -755,8 +1002,8 @@
       </div>
       <p class="workspace-copy">
         {#if $activeSection === "recording"}
-          The recording workspace now uses the real microphone list plus explicit start, stop, and
-          cancel recorder commands without chaining into transcription yet.
+          The recording workspace now polls explicit recorder status, shows the 15-minute safety
+          cap, and keeps recorded audio separate from transcription.
         {:else if $activeSection === "history"}
           Saved transcript history still loads from the local database. Mock transcripts appear here
           only when the saved history setting allows them.
@@ -778,7 +1025,8 @@
             <p class:pending={recordingDevicesState === "loading"} class:success={recordingDevicesState === "ready"} class:error={recordingDevicesState === "error"}>
               {recordingDevicesStatusMessage}
             </p>
-            <p class="phase-note">Real recording is active in Release 0.6. Mock transcription still stays separate on purpose.</p>
+            <p class="phase-note">Real recording is active in Release 0.7. Mock transcription still stays separate on purpose.</p>
+            <p class="phase-note"><strong>{recordingLimitLabel}</strong> · Elapsed {elapsedTimeLabel} · Remaining {remainingTimeLabel}</p>
             <p class="phase-note">{mockHistoryModeLabel}</p>
           </div>
 
@@ -875,6 +1123,14 @@
                 <dt>Channels</dt>
                 <dd>{currentRecordedAudio.channels}</dd>
               </div>
+              <div>
+                <dt>Max duration</dt>
+                <dd>{formatDuration(currentRecordedAudio.maxDurationMs)}</dd>
+              </div>
+              <div>
+                <dt>Stop reason</dt>
+                <dd>{stopReasonLabel}</dd>
+              </div>
             </dl>
           {/if}
         </section>
@@ -901,7 +1157,19 @@
               <dd>{$appStatus.inputLabel}</dd>
             </div>
             <div>
-              <dt>Duration</dt>
+              <dt>Elapsed</dt>
+              <dd>{elapsedTimeLabel}</dd>
+            </div>
+            <div>
+              <dt>Remaining</dt>
+              <dd>{remainingTimeLabel}</dd>
+            </div>
+            <div>
+              <dt>Maximum</dt>
+              <dd>{maxDurationLabel}</dd>
+            </div>
+            <div>
+              <dt>Summary</dt>
               <dd>{$appStatus.durationLabel}</dd>
             </div>
             <div>
@@ -935,8 +1203,8 @@
             <h3>{$appStatus.phaseLabel}</h3>
             <p>
               The UI currently shows the <strong>{$appStatus.phase}</strong> phase while the frontend
-              coordinates explicit <code>start_recording</code>, <code>stop_recording</code>, and
-              <code>cancel_recording</code> commands.
+              coordinates explicit <code>start_recording</code>, <code>get_recording_status</code>,
+              <code>stop_recording</code>, and <code>cancel_recording</code> commands.
             </p>
           </div>
 
@@ -961,6 +1229,10 @@
               <dd><code>start_recording</code></dd>
             </div>
             <div>
+              <dt>Status command</dt>
+              <dd><code>get_recording_status</code></dd>
+            </div>
+            <div>
               <dt>Stop command</dt>
               <dd><code>stop_recording</code></dd>
             </div>
@@ -975,6 +1247,10 @@
             <div>
               <dt>Preferred microphone</dt>
               <dd>{selectedMicrophoneLabel}</dd>
+            </div>
+            <div>
+              <dt>Status polling</dt>
+              <dd>{statusPollingLabel}</dd>
             </div>
             <div>
               <dt>Loaded devices</dt>
@@ -1012,7 +1288,7 @@
           </div>
           <p>
             This view reads saved transcripts from SQLite through explicit native commands. In Release
-            0.6, only the separate mock transcription flow writes entries here.
+            0.7, only the separate mock transcription flow writes entries here.
           </p>
           <div class="history-toolbar">
             <p class:pending={historyState === "loading"} class:success={historyState === "ready" && historyError === ""} class:error={historyError !== ""}>

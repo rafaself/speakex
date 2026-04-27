@@ -10,6 +10,17 @@ export interface ActiveRecordingSession {
   inputDeviceName: string;
 }
 
+export interface RecordingStatus {
+  phase: "idle" | "starting" | "recording" | "stopping" | "cancelling";
+  activeSessionId: string | null;
+  inputDeviceName: string | null;
+  elapsedMs: number | null;
+  remainingMs: number | null;
+  maxDurationMs: number;
+  limitReached: boolean;
+  lastCompletedSessionId: string | null;
+}
+
 export interface RecordedAudioInput {
   path: string;
   mimeType: string;
@@ -23,6 +34,7 @@ export interface StoppedRecording {
   sampleRateHz: number;
   channels: number;
   fileSizeBytes: number;
+  limitReached: boolean;
 }
 
 export interface CancelledRecording {
@@ -36,6 +48,10 @@ export async function listRecordingInputDevices(): Promise<RecordingInputDevice[
 
 export async function startRecording(deviceName: string | null): Promise<ActiveRecordingSession> {
   return invoke<ActiveRecordingSession>("start_recording", { deviceName });
+}
+
+export async function getRecordingStatus(): Promise<RecordingStatus> {
+  return invoke<RecordingStatus>("get_recording_status");
 }
 
 export async function stopRecording(): Promise<StoppedRecording> {

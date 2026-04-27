@@ -10,15 +10,17 @@ use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    mpsc::{self, Receiver, SyncSender},
+    mpsc::{self, Receiver, SyncSender, TryRecvError},
     Arc, Mutex, MutexGuard,
 };
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const RECORDING_MIME_TYPE: &str = "audio/wav";
 const WAV_BITS_PER_SAMPLE: u16 = 16;
 const WAV_BYTES_PER_SAMPLE: u16 = WAV_BITS_PER_SAMPLE / 8;
+const MAX_RECORDING_DURATION: Duration = Duration::from_secs(15 * 60);
+const MAX_RECORDING_DURATION_MS: u64 = 15 * 60 * 1000;
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +37,12 @@ pub enum RecorderPhase {
 pub struct RecorderSnapshot {
     pub phase: RecorderPhase,
     pub active_session_id: Option<String>,
+    pub input_device_name: Option<String>,
+    pub elapsed_ms: Option<u64>,
+    pub remaining_ms: Option<u64>,
+    pub max_duration_ms: u64,
+    pub limit_reached: bool,
+    pub last_completed_session_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -47,6 +55,7 @@ pub struct RecordingInputDevice {
 struct RecordingSession {
     id: String,
     started_at: Instant,
+    max_duration: Duration,
     audio_path: PathBuf,
     input_device_name: String,
     sample_rate_hz: u32,
@@ -55,10 +64,11 @@ struct RecordingSession {
 }
 
 impl RecordingSession {
-    fn new(id: String, started_capture: StartedRecordingCapture) -> Self {
+    fn new(id: String, started_capture: StartedRecordingCapture, max_duration: Duration) -> Self {
         Self {
             id,
             started_at: Instant::now(),
+            max_duration,
             audio_path: started_capture.audio_path,
             input_device_name: started_capture.input_device_name,
             sample_rate_hz: started_capture.sample_rate_hz,
@@ -74,23 +84,128 @@ impl RecordingSession {
         }
     }
 
-    fn stop_result(self) -> Result<StoppedRecording, RecorderError> {
-        let duration_ms = self
-            .started_at
+    fn snapshot(&self, phase: RecorderPhase) -> RecorderSnapshot {
+        RecorderSnapshot {
+            phase,
+            active_session_id: Some(self.id.clone()),
+            input_device_name: Some(self.input_device_name.clone()),
+            elapsed_ms: Some(self.elapsed_ms()),
+            remaining_ms: Some(self.remaining_ms()),
+            max_duration_ms: self.max_duration_ms(),
+            limit_reached: false,
+            last_completed_session_id: None,
+        }
+    }
+
+    fn poll_completion(&mut self) -> Result<Option<FinishedRecordingArtifact>, RecorderError> {
+        match self.runtime.poll_completion()? {
+            Some(RuntimeCompletion::Stopped(artifact)) => Ok(Some(artifact)),
+            Some(RuntimeCompletion::Cancelled) => Err(RecorderError::AudioStreamFailure {
+                message: "recording thread returned an unexpected cancel result".to_string(),
+            }),
+            None => Ok(None),
+        }
+    }
+
+    fn elapsed_ms(&self) -> u64 {
+        self.started_at
             .elapsed()
+            .min(self.max_duration)
             .as_millis()
             .try_into()
-            .unwrap_or(u64::MAX);
-        let finished_artifact = self.runtime.finish()?;
+            .unwrap_or(u64::MAX)
+    }
 
-        Ok(StoppedRecording {
-            session_id: self.id,
-            audio_input: AudioInput::new(self.audio_path, RECORDING_MIME_TYPE, Some(duration_ms)),
-            input_device_name: self.input_device_name,
-            sample_rate_hz: self.sample_rate_hz,
-            channels: self.channels,
+    fn remaining_ms(&self) -> u64 {
+        self.max_duration_ms().saturating_sub(self.elapsed_ms())
+    }
+
+    fn max_duration_ms(&self) -> u64 {
+        self.max_duration.as_millis().try_into().unwrap_or(u64::MAX)
+    }
+
+    fn stop_result(self) -> Result<StoppedRecording, RecorderError> {
+        let RecordingSession {
+            id,
+            started_at,
+            max_duration,
+            audio_path,
+            input_device_name,
+            sample_rate_hz,
+            channels,
+            runtime,
+            ..
+        } = self;
+        let finished_artifact = runtime.finish()?;
+        let duration_ms = if finished_artifact.limit_reached {
+            max_duration.as_millis().try_into().unwrap_or(u64::MAX)
+        } else {
+            started_at
+                .elapsed()
+                .min(max_duration)
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX)
+        };
+
+        Ok(Self::build_stopped_recording_from_parts(
+            id,
+            audio_path,
+            input_device_name,
+            sample_rate_hz,
+            channels,
+            duration_ms,
+            finished_artifact,
+        ))
+    }
+
+    fn build_stopped_recording(
+        self,
+        finished_artifact: FinishedRecordingArtifact,
+    ) -> StoppedRecording {
+        let duration_ms = if finished_artifact.limit_reached {
+            self.max_duration_ms()
+        } else {
+            self.elapsed_ms()
+        };
+        let RecordingSession {
+            id,
+            audio_path,
+            input_device_name,
+            sample_rate_hz,
+            channels,
+            ..
+        } = self;
+
+        Self::build_stopped_recording_from_parts(
+            id,
+            audio_path,
+            input_device_name,
+            sample_rate_hz,
+            channels,
+            duration_ms,
+            finished_artifact,
+        )
+    }
+
+    fn build_stopped_recording_from_parts(
+        id: String,
+        audio_path: PathBuf,
+        input_device_name: String,
+        sample_rate_hz: u32,
+        channels: u16,
+        duration_ms: u64,
+        finished_artifact: FinishedRecordingArtifact,
+    ) -> StoppedRecording {
+        StoppedRecording {
+            session_id: id,
+            audio_input: AudioInput::new(audio_path, RECORDING_MIME_TYPE, Some(duration_ms)),
+            input_device_name,
+            sample_rate_hz,
+            channels,
             file_size_bytes: finished_artifact.file_size_bytes,
-        })
+            limit_reached: finished_artifact.limit_reached,
+        }
     }
 
     fn cancel_result(self) -> Result<CancelledRecording, RecorderError> {
@@ -119,6 +234,7 @@ pub struct StoppedRecording {
     pub sample_rate_hz: u32,
     pub channels: u16,
     pub file_size_bytes: u64,
+    pub limit_reached: bool,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -126,6 +242,31 @@ pub struct StoppedRecording {
 pub struct CancelledRecording {
     pub session_id: String,
     pub deleted_audio_path: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LastStoppedRecording {
+    session_id: String,
+    input_device_name: String,
+    elapsed_ms: u64,
+    max_duration_ms: u64,
+    remaining_ms: u64,
+    limit_reached: bool,
+}
+
+impl LastStoppedRecording {
+    fn from_stopped(stopped: &StoppedRecording, max_duration_ms: u64) -> Self {
+        let elapsed_ms = stopped.audio_input.duration_ms.unwrap_or_default();
+
+        Self {
+            session_id: stopped.session_id.clone(),
+            input_device_name: stopped.input_device_name.clone(),
+            elapsed_ms,
+            max_duration_ms,
+            remaining_ms: max_duration_ms.saturating_sub(elapsed_ms),
+            limit_reached: stopped.limit_reached,
+        }
+    }
 }
 
 enum RecorderLifecycleState {
@@ -142,47 +283,86 @@ impl RecorderLifecycleState {
             Self::Idle => RecorderSnapshot {
                 phase: RecorderPhase::Idle,
                 active_session_id: None,
+                input_device_name: None,
+                elapsed_ms: None,
+                remaining_ms: None,
+                max_duration_ms: MAX_RECORDING_DURATION_MS,
+                limit_reached: false,
+                last_completed_session_id: None,
             },
-            Self::Starting(session) => RecorderSnapshot {
-                phase: RecorderPhase::Starting,
-                active_session_id: Some(session.id.clone()),
-            },
-            Self::Recording(session) => RecorderSnapshot {
-                phase: RecorderPhase::Recording,
-                active_session_id: Some(session.id.clone()),
-            },
-            Self::Stopping(session) => RecorderSnapshot {
-                phase: RecorderPhase::Stopping,
-                active_session_id: Some(session.id.clone()),
-            },
-            Self::Cancelling(session) => RecorderSnapshot {
-                phase: RecorderPhase::Cancelling,
-                active_session_id: Some(session.id.clone()),
-            },
+            Self::Starting(session) => session.snapshot(RecorderPhase::Starting),
+            Self::Recording(session) => session.snapshot(RecorderPhase::Recording),
+            Self::Stopping(session) => session.snapshot(RecorderPhase::Stopping),
+            Self::Cancelling(session) => session.snapshot(RecorderPhase::Cancelling),
         }
     }
 }
 
 struct RecorderLifecycle {
     state: RecorderLifecycleState,
+    last_stopped_recording: Option<LastStoppedRecording>,
 }
 
 impl Default for RecorderLifecycle {
     fn default() -> Self {
         Self {
             state: RecorderLifecycleState::Idle,
+            last_stopped_recording: None,
         }
     }
 }
 
 impl RecorderLifecycle {
     fn snapshot(&self) -> RecorderSnapshot {
-        self.state.snapshot()
+        match &self.state {
+            RecorderLifecycleState::Idle => {
+                let mut snapshot = self.state.snapshot();
+                if let Some(last_stopped_recording) = &self.last_stopped_recording {
+                    snapshot.input_device_name =
+                        Some(last_stopped_recording.input_device_name.clone());
+                    snapshot.elapsed_ms = Some(last_stopped_recording.elapsed_ms);
+                    snapshot.remaining_ms = Some(last_stopped_recording.remaining_ms);
+                    snapshot.max_duration_ms = last_stopped_recording.max_duration_ms;
+                    snapshot.limit_reached = last_stopped_recording.limit_reached;
+                    snapshot.last_completed_session_id =
+                        Some(last_stopped_recording.session_id.clone());
+                }
+
+                snapshot
+            }
+            _ => self.state.snapshot(),
+        }
+    }
+
+    fn refresh_recording(&mut self) -> Result<Option<StoppedRecording>, RecorderError> {
+        match std::mem::replace(&mut self.state, RecorderLifecycleState::Idle) {
+            RecorderLifecycleState::Recording(mut session) => match session.poll_completion()? {
+                Some(finished_artifact) => {
+                    let max_duration_ms = session.max_duration_ms();
+                    let stopped = session.build_stopped_recording(finished_artifact);
+                    self.last_stopped_recording = Some(LastStoppedRecording::from_stopped(
+                        &stopped,
+                        max_duration_ms,
+                    ));
+
+                    Ok(Some(stopped))
+                }
+                None => {
+                    self.state = RecorderLifecycleState::Recording(session);
+                    Ok(None)
+                }
+            },
+            state => {
+                self.state = state;
+                Ok(None)
+            }
+        }
     }
 
     fn begin_start(&mut self, session: RecordingSession) -> Result<(), RecorderError> {
         match self.state {
             RecorderLifecycleState::Idle => {
+                self.last_stopped_recording = None;
                 self.state = RecorderLifecycleState::Starting(session);
                 Ok(())
             }
@@ -230,7 +410,16 @@ impl RecorderLifecycle {
 
     fn complete_stop(&mut self) -> Result<StoppedRecording, RecorderError> {
         match std::mem::replace(&mut self.state, RecorderLifecycleState::Idle) {
-            RecorderLifecycleState::Stopping(session) => session.stop_result(),
+            RecorderLifecycleState::Stopping(session) => {
+                let max_duration_ms = session.max_duration_ms();
+                let stopped = session.stop_result()?;
+                self.last_stopped_recording = Some(LastStoppedRecording::from_stopped(
+                    &stopped,
+                    max_duration_ms,
+                ));
+
+                Ok(stopped)
+            }
             state => {
                 let current_phase = state.snapshot().phase;
                 self.state = state;
@@ -261,7 +450,10 @@ impl RecorderLifecycle {
 
     fn complete_cancel(&mut self) -> Result<CancelledRecording, RecorderError> {
         match std::mem::replace(&mut self.state, RecorderLifecycleState::Idle) {
-            RecorderLifecycleState::Cancelling(session) => session.cancel_result(),
+            RecorderLifecycleState::Cancelling(session) => {
+                self.last_stopped_recording = None;
+                session.cancel_result()
+            }
             state => {
                 let current_phase = state.snapshot().phase;
                 self.state = state;
@@ -433,24 +625,37 @@ pub struct RecorderService {
     next_session_number: AtomicU64,
     recordings_dir: PathBuf,
     backend: Arc<dyn RecordingBackend>,
+    max_recording_duration: Duration,
 }
 
 impl RecorderService {
     pub fn new(recordings_dir: PathBuf) -> Self {
-        Self::with_backend(recordings_dir, Arc::new(CpalRecordingBackend::new()))
+        Self::with_backend_and_max_duration(
+            recordings_dir,
+            Arc::new(CpalRecordingBackend::new()),
+            MAX_RECORDING_DURATION,
+        )
     }
 
-    fn with_backend(recordings_dir: PathBuf, backend: Arc<dyn RecordingBackend>) -> Self {
+    fn with_backend_and_max_duration(
+        recordings_dir: PathBuf,
+        backend: Arc<dyn RecordingBackend>,
+        max_recording_duration: Duration,
+    ) -> Self {
         Self {
             lifecycle: Mutex::new(RecorderLifecycle::default()),
             next_session_number: AtomicU64::new(1),
             recordings_dir,
             backend,
+            max_recording_duration,
         }
     }
 
     pub fn snapshot(&self) -> Result<RecorderSnapshot, RecorderError> {
-        Ok(self.lifecycle()?.snapshot())
+        let mut lifecycle = self.lifecycle()?;
+        let _ = lifecycle.refresh_recording()?;
+
+        Ok(lifecycle.snapshot())
     }
 
     pub fn list_input_devices(&self) -> Result<Vec<RecordingInputDevice>, RecorderError> {
@@ -467,6 +672,7 @@ impl RecorderService {
         );
 
         let mut lifecycle = self.lifecycle()?;
+        let _ = lifecycle.refresh_recording()?;
         if lifecycle.snapshot().phase != RecorderPhase::Idle {
             return Err(RecorderError::TransitionRejected {
                 attempted: RecorderTransition::Start,
@@ -478,8 +684,10 @@ impl RecorderService {
             session_id: session_id.clone(),
             selected_device_name,
             recordings_dir: self.recordings_dir.clone(),
+            max_duration: self.max_recording_duration,
         })?;
-        let session = RecordingSession::new(session_id, started_capture);
+        let session =
+            RecordingSession::new(session_id, started_capture, self.max_recording_duration);
 
         lifecycle.begin_start(session)?;
         lifecycle.complete_start()
@@ -487,6 +695,9 @@ impl RecorderService {
 
     pub fn stop(&self) -> Result<StoppedRecording, RecorderError> {
         let mut lifecycle = self.lifecycle()?;
+        if let Some(stopped) = lifecycle.refresh_recording()? {
+            return Ok(stopped);
+        }
 
         lifecycle.begin_stop()?;
         lifecycle.complete_stop()
@@ -494,6 +705,7 @@ impl RecorderService {
 
     pub fn cancel(&self) -> Result<CancelledRecording, RecorderError> {
         let mut lifecycle = self.lifecycle()?;
+        let _ = lifecycle.refresh_recording()?;
 
         lifecycle.begin_cancel()?;
         lifecycle.complete_cancel()
@@ -510,6 +722,7 @@ struct StartRecordingRequest {
     session_id: String,
     selected_device_name: Option<String>,
     recordings_dir: PathBuf,
+    max_duration: Duration,
 }
 
 struct StartedRecordingCapture {
@@ -522,6 +735,7 @@ struct StartedRecordingCapture {
 
 struct FinishedRecordingArtifact {
     file_size_bytes: u64,
+    limit_reached: bool,
 }
 
 struct CancelledRecordingArtifact {
@@ -531,6 +745,12 @@ struct CancelledRecordingArtifact {
 trait RecordingRuntime: Send {
     fn finish(self: Box<Self>) -> Result<FinishedRecordingArtifact, RecorderError>;
     fn cancel(self: Box<Self>) -> Result<CancelledRecordingArtifact, RecorderError>;
+    fn poll_completion(&mut self) -> Result<Option<RuntimeCompletion>, RecorderError>;
+}
+
+enum RuntimeCompletion {
+    Stopped(FinishedRecordingArtifact),
+    Cancelled,
 }
 
 trait RecordingBackend: Send + Sync {
@@ -590,6 +810,7 @@ impl CpalRecordingBackend {
                 run_capture_thread(
                     thread_audio_path,
                     thread_device_name,
+                    request.max_duration,
                     startup_sender,
                     control_receiver,
                     result_sender,
@@ -677,48 +898,49 @@ enum CaptureThreadResult {
 
 impl CpalRecordingRuntime {
     fn finish_inner(&mut self) -> Result<FinishedRecordingArtifact, RecorderError> {
-        self.control_sender
-            .send(CaptureThreadCommand::Stop)
-            .map_err(|_| RecorderError::AudioStreamFailure {
-                message: "recording thread is unavailable".to_string(),
-            })?;
+        if let Some(result) = self.try_receive_ready_result()? {
+            match result {
+                CaptureThreadResult::Stopped(artifact) => Ok(artifact),
+                CaptureThreadResult::Cancelled(_) => Err(RecorderError::AudioStreamFailure {
+                    message: "recording thread returned an unexpected cancel result".to_string(),
+                }),
+            }
+        } else {
+            match self.control_sender.send(CaptureThreadCommand::Stop) {
+                Ok(()) => {}
+                Err(_) => return self.receive_result_after_shutdown(),
+            }
 
-        let result =
-            self.result_receiver
-                .recv()
-                .map_err(|_| RecorderError::AudioStreamFailure {
-                    message: "recording thread stopped before returning a result".to_string(),
-                })?;
-        self.join_thread()?;
-
-        match result? {
-            CaptureThreadResult::Stopped(artifact) => Ok(artifact),
-            CaptureThreadResult::Cancelled(_) => Err(RecorderError::AudioStreamFailure {
-                message: "recording thread returned an unexpected cancel result".to_string(),
-            }),
+            match self.receive_result()? {
+                CaptureThreadResult::Stopped(artifact) => Ok(artifact),
+                CaptureThreadResult::Cancelled(_) => Err(RecorderError::AudioStreamFailure {
+                    message: "recording thread returned an unexpected cancel result".to_string(),
+                }),
+            }
         }
     }
 
     fn cancel_inner(&mut self) -> Result<CancelledRecordingArtifact, RecorderError> {
-        self.control_sender
-            .send(CaptureThreadCommand::Cancel)
-            .map_err(|_| RecorderError::AudioStreamFailure {
-                message: "recording thread is unavailable".to_string(),
-            })?;
-
-        let result =
-            self.result_receiver
-                .recv()
+        if let Some(result) = self.try_receive_ready_result()? {
+            match result {
+                CaptureThreadResult::Cancelled(artifact) => Ok(artifact),
+                CaptureThreadResult::Stopped(_) => Err(RecorderError::AudioStreamFailure {
+                    message: "recording thread returned an unexpected stop result".to_string(),
+                }),
+            }
+        } else {
+            self.control_sender
+                .send(CaptureThreadCommand::Cancel)
                 .map_err(|_| RecorderError::AudioStreamFailure {
-                    message: "recording thread stopped before returning a result".to_string(),
+                    message: "recording thread is unavailable".to_string(),
                 })?;
-        self.join_thread()?;
 
-        match result? {
-            CaptureThreadResult::Cancelled(artifact) => Ok(artifact),
-            CaptureThreadResult::Stopped(_) => Err(RecorderError::AudioStreamFailure {
-                message: "recording thread returned an unexpected stop result".to_string(),
-            }),
+            match self.receive_result()? {
+                CaptureThreadResult::Cancelled(artifact) => Ok(artifact),
+                CaptureThreadResult::Stopped(_) => Err(RecorderError::AudioStreamFailure {
+                    message: "recording thread returned an unexpected stop result".to_string(),
+                }),
+            }
         }
     }
 
@@ -733,6 +955,45 @@ impl CpalRecordingRuntime {
 
         Ok(())
     }
+
+    fn try_receive_ready_result(&mut self) -> Result<Option<CaptureThreadResult>, RecorderError> {
+        match self.result_receiver.try_recv() {
+            Ok(result) => {
+                self.join_thread()?;
+                result.map(Some)
+            }
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => {
+                self.join_thread()?;
+                Err(RecorderError::AudioStreamFailure {
+                    message: "recording thread stopped before returning a result".to_string(),
+                })
+            }
+        }
+    }
+
+    fn receive_result(&mut self) -> Result<CaptureThreadResult, RecorderError> {
+        let result =
+            self.result_receiver
+                .recv()
+                .map_err(|_| RecorderError::AudioStreamFailure {
+                    message: "recording thread stopped before returning a result".to_string(),
+                })?;
+        self.join_thread()?;
+
+        result
+    }
+
+    fn receive_result_after_shutdown(
+        &mut self,
+    ) -> Result<FinishedRecordingArtifact, RecorderError> {
+        match self.receive_result()? {
+            CaptureThreadResult::Stopped(artifact) => Ok(artifact),
+            CaptureThreadResult::Cancelled(_) => Err(RecorderError::AudioStreamFailure {
+                message: "recording thread returned an unexpected cancel result".to_string(),
+            }),
+        }
+    }
 }
 
 impl RecordingRuntime for CpalRecordingRuntime {
@@ -742,6 +1003,15 @@ impl RecordingRuntime for CpalRecordingRuntime {
 
     fn cancel(mut self: Box<Self>) -> Result<CancelledRecordingArtifact, RecorderError> {
         self.cancel_inner()
+    }
+
+    fn poll_completion(&mut self) -> Result<Option<RuntimeCompletion>, RecorderError> {
+        self.try_receive_ready_result().map(|result| {
+            result.map(|value| match value {
+                CaptureThreadResult::Stopped(artifact) => RuntimeCompletion::Stopped(artifact),
+                CaptureThreadResult::Cancelled(_) => RuntimeCompletion::Cancelled,
+            })
+        })
     }
 }
 
@@ -762,6 +1032,7 @@ impl CaptureSharedState {
 fn run_capture_thread(
     audio_path: PathBuf,
     input_device_name: String,
+    max_duration: Duration,
     startup_sender: SyncSender<Result<(), RecorderError>>,
     control_receiver: Receiver<CaptureThreadCommand>,
     result_sender: SyncSender<Result<CaptureThreadResult, RecorderError>>,
@@ -811,14 +1082,17 @@ fn run_capture_thread(
         return;
     }
 
-    let command = control_receiver
-        .recv()
-        .unwrap_or(CaptureThreadCommand::Cancel);
+    let (command, limit_reached) = match control_receiver.recv_timeout(max_duration) {
+        Ok(command) => (command, false),
+        Err(mpsc::RecvTimeoutError::Timeout) => (CaptureThreadCommand::Stop, true),
+        Err(mpsc::RecvTimeoutError::Disconnected) => (CaptureThreadCommand::Cancel, false),
+    };
     drop(stream);
 
     let result = match command {
         CaptureThreadCommand::Stop => {
-            finalize_capture_file(&audio_path, &shared_state).map(CaptureThreadResult::Stopped)
+            finalize_capture_file(&audio_path, &shared_state, limit_reached)
+                .map(CaptureThreadResult::Stopped)
         }
         CaptureThreadCommand::Cancel => {
             cancel_capture_file(&audio_path, &shared_state).map(CaptureThreadResult::Cancelled)
@@ -831,6 +1105,7 @@ fn run_capture_thread(
 fn finalize_capture_file(
     audio_path: &Path,
     shared_state: &Arc<Mutex<CaptureSharedState>>,
+    limit_reached: bool,
 ) -> Result<FinishedRecordingArtifact, RecorderError> {
     let mut capture_state = shared_state
         .lock()
@@ -853,7 +1128,10 @@ fn finalize_capture_file(
         return Err(RecorderError::AudioStreamFailure { message });
     }
 
-    Ok(FinishedRecordingArtifact { file_size_bytes })
+    Ok(FinishedRecordingArtifact {
+        file_size_bytes,
+        limit_reached,
+    })
 }
 
 fn cancel_capture_file(
@@ -1172,7 +1450,8 @@ mod tests {
     use super::{
         ActiveRecordingSession, CancelledRecording, RecorderError, RecorderLifecycle,
         RecorderPhase, RecorderService, RecorderTransition, RecordingInputDevice, RecordingRuntime,
-        RecordingSession, StartedRecordingCapture, StoppedRecording,
+        RecordingSession, RuntimeCompletion, StartedRecordingCapture, StoppedRecording,
+        MAX_RECORDING_DURATION, MAX_RECORDING_DURATION_MS,
     };
     use crate::transcription::AudioInput;
     use std::fs::{self, File};
@@ -1213,6 +1492,7 @@ mod tests {
     struct FakeRecordingBackend {
         devices: Vec<RecordingInputDevice>,
         create_file_on_start: bool,
+        limit_reached_on_poll: bool,
     }
 
     impl FakeRecordingBackend {
@@ -1220,6 +1500,7 @@ mod tests {
             Self {
                 devices,
                 create_file_on_start: true,
+                limit_reached_on_poll: false,
             }
         }
     }
@@ -1255,6 +1536,8 @@ mod tests {
                 runtime: Box::new(FakeRecordingRuntime {
                     audio_path,
                     file_size_bytes: 9,
+                    limit_reached_on_poll: self.limit_reached_on_poll,
+                    completion_reported: false,
                 }),
             })
         }
@@ -1263,12 +1546,15 @@ mod tests {
     struct FakeRecordingRuntime {
         audio_path: PathBuf,
         file_size_bytes: u64,
+        limit_reached_on_poll: bool,
+        completion_reported: bool,
     }
 
     impl RecordingRuntime for FakeRecordingRuntime {
         fn finish(self: Box<Self>) -> Result<super::FinishedRecordingArtifact, RecorderError> {
             Ok(super::FinishedRecordingArtifact {
                 file_size_bytes: self.file_size_bytes,
+                limit_reached: false,
             })
         }
 
@@ -1284,17 +1570,45 @@ mod tests {
                 })
             }
         }
+
+        fn poll_completion(&mut self) -> Result<Option<RuntimeCompletion>, RecorderError> {
+            if self.limit_reached_on_poll && !self.completion_reported {
+                self.completion_reported = true;
+
+                return Ok(Some(RuntimeCompletion::Stopped(
+                    super::FinishedRecordingArtifact {
+                        file_size_bytes: self.file_size_bytes,
+                        limit_reached: true,
+                    },
+                )));
+            }
+
+            Ok(None)
+        }
     }
 
     fn recorder_service_for_tests(test_name: &str) -> (RecorderService, TestDirectory) {
-        let test_directory = TestDirectory::new(test_name);
-        let backend = Arc::new(FakeRecordingBackend::with_devices(vec![
-            RecordingInputDevice {
+        recorder_service_for_tests_with_backend(
+            test_name,
+            FakeRecordingBackend::with_devices(vec![RecordingInputDevice {
                 name: "Default Test Microphone".to_string(),
                 is_default: true,
-            },
-        ]));
-        let service = RecorderService::with_backend(test_directory.path.clone(), backend);
+            }]),
+            MAX_RECORDING_DURATION,
+        )
+    }
+
+    fn recorder_service_for_tests_with_backend(
+        test_name: &str,
+        backend: FakeRecordingBackend,
+        max_recording_duration: std::time::Duration,
+    ) -> (RecorderService, TestDirectory) {
+        let test_directory = TestDirectory::new(test_name);
+        let service = RecorderService::with_backend_and_max_duration(
+            test_directory.path.clone(),
+            Arc::new(backend),
+            max_recording_duration,
+        );
 
         (service, test_directory)
     }
@@ -1327,6 +1641,15 @@ mod tests {
         assert_eq!(session.input_device_name, "Default Test Microphone");
         assert_eq!(snapshot.phase, RecorderPhase::Recording);
         assert_eq!(snapshot.active_session_id.as_deref(), Some("recording-1"));
+        assert_eq!(
+            snapshot.input_device_name.as_deref(),
+            Some("Default Test Microphone")
+        );
+        assert_eq!(snapshot.max_duration_ms, MAX_RECORDING_DURATION_MS);
+        assert!(!snapshot.limit_reached);
+        assert_eq!(snapshot.last_completed_session_id, None);
+        assert!(snapshot.elapsed_ms.is_some());
+        assert!(snapshot.remaining_ms.is_some());
     }
 
     #[test]
@@ -1359,6 +1682,7 @@ mod tests {
         assert_eq!(stopped.sample_rate_hz, 16_000);
         assert_eq!(stopped.channels, 1);
         assert_eq!(stopped.file_size_bytes, 9);
+        assert!(!stopped.limit_reached);
         assert!(stopped.audio_input.path.exists());
         assert!(stopped
             .audio_input
@@ -1366,6 +1690,11 @@ mod tests {
             .starts_with(test_directory.path.as_path()));
         assert_eq!(snapshot.phase, RecorderPhase::Idle);
         assert_eq!(snapshot.active_session_id, None);
+        assert_eq!(
+            snapshot.last_completed_session_id.as_deref(),
+            Some(session.id.as_str())
+        );
+        assert!(!snapshot.limit_reached);
     }
 
     #[test]
@@ -1382,6 +1711,66 @@ mod tests {
         assert!(!audio_path.exists());
         assert_eq!(snapshot.phase, RecorderPhase::Idle);
         assert_eq!(snapshot.active_session_id, None);
+        assert_eq!(snapshot.last_completed_session_id, None);
+        assert!(!snapshot.limit_reached);
+    }
+
+    #[test]
+    fn recorder_service_snapshot_reports_limit_status_after_auto_stop() {
+        let backend = FakeRecordingBackend {
+            limit_reached_on_poll: true,
+            ..FakeRecordingBackend::with_devices(vec![RecordingInputDevice {
+                name: "Default Test Microphone".to_string(),
+                is_default: true,
+            }])
+        };
+        let (service, _test_directory) = recorder_service_for_tests_with_backend(
+            "limit-status",
+            backend,
+            std::time::Duration::from_millis(250),
+        );
+
+        let session = service.start(None).expect("recorder should start");
+        let snapshot = service.snapshot().expect("snapshot should succeed");
+
+        assert_eq!(snapshot.phase, RecorderPhase::Idle);
+        assert_eq!(snapshot.active_session_id, None);
+        assert_eq!(
+            snapshot.input_device_name.as_deref(),
+            Some("Default Test Microphone")
+        );
+        assert_eq!(snapshot.elapsed_ms, Some(250));
+        assert_eq!(snapshot.remaining_ms, Some(0));
+        assert_eq!(snapshot.max_duration_ms, 250);
+        assert!(snapshot.limit_reached);
+        assert_eq!(
+            snapshot.last_completed_session_id.as_deref(),
+            Some(session.id.as_str())
+        );
+    }
+
+    #[test]
+    fn recorder_service_stop_returns_auto_stopped_result_when_limit_was_reached() {
+        let backend = FakeRecordingBackend {
+            limit_reached_on_poll: true,
+            ..FakeRecordingBackend::with_devices(vec![RecordingInputDevice {
+                name: "Default Test Microphone".to_string(),
+                is_default: true,
+            }])
+        };
+        let (service, _test_directory) = recorder_service_for_tests_with_backend(
+            "limit-stop",
+            backend,
+            std::time::Duration::from_millis(250),
+        );
+
+        let session = service.start(None).expect("recorder should start");
+        let stopped = service.stop().expect("stop should return auto-stop result");
+
+        assert_eq!(stopped.session_id, session.id);
+        assert_eq!(stopped.audio_input.duration_ms, Some(250));
+        assert!(stopped.limit_reached);
+        assert!(stopped.audio_input.path.exists());
     }
 
     #[test]
@@ -1491,8 +1880,11 @@ mod tests {
                 runtime: Box::new(FakeRecordingRuntime {
                     audio_path: recordings_dir.join(format!("{id}.wav")),
                     file_size_bytes: 5,
+                    limit_reached_on_poll: false,
+                    completion_reported: false,
                 }),
             },
+            MAX_RECORDING_DURATION,
         )
     }
 

@@ -39,7 +39,7 @@ export const navigationSections: NavigationSection[] = [
 
 export const recordingPlanSteps = [
   "Load the available microphones from Rust before starting capture.",
-  "Record audio into a temporary local WAV file with explicit stop or cancel controls.",
+  "Poll explicit recorder status while capture is active so the UI can show elapsed, remaining, and max duration safely.",
   "Keep mock transcription separate until a later release wires recorded audio into providers."
 ];
 
@@ -49,12 +49,13 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Idle",
     headline: "Ready to capture a local recording.",
     detail:
-      "Release 0.6 connects the interface to explicit Rust recorder commands without chaining into transcription yet.",
+      "Release 0.7 keeps the real recorder flow explicit while adding a hard 15-minute cap and live safety status in the UI.",
     transcriptTitle: "No recorded audio yet.",
     transcriptPreview:
       "Start a recording to create a temporary WAV file, or run the mock transcription flow separately to keep testing the fake provider path.",
     inputLabel: "System default microphone",
     durationLabel: "—",
+    recordingTiming: null,
     recordedAudio: null
   },
   recording: {
@@ -65,9 +66,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
       "Audio capture is active through Rust. Use Stop to keep the temporary WAV file or Cancel to discard it.",
     transcriptTitle: "Live capture in progress…",
     transcriptPreview:
-      "The app is recording into a temporary local WAV file. No transcription will run automatically when capture ends.",
+      "The app is recording into a temporary local WAV file. No transcription will run automatically when capture ends, including when the 15-minute cap is reached.",
     inputLabel: "System default microphone",
     durationLabel: "Recording…",
+    recordingTiming: null,
     recordedAudio: null
   },
   transcribing: {
@@ -78,9 +80,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
       "The frontend is waiting on the explicit Rust mock transcription command. Recorded audio is not sent into this mock flow.",
     transcriptTitle: "Draft transcript incoming…",
     transcriptPreview:
-      "This remains a separate fake provider path on purpose while Release 0.6 focuses on real recording only.",
+      "This remains a separate fake provider path on purpose while Release 0.7 focuses on recording safety and explicit status polling.",
     inputLabel: "System default microphone",
     durationLabel: "—",
+    recordingTiming: null,
     recordedAudio: null
   },
   completed: {
@@ -94,6 +97,7 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
       "The capture finished successfully. Review the local audio details below or run the mock transcription flow separately.",
     inputLabel: "System default microphone",
     durationLabel: "—",
+    recordingTiming: null,
     recordedAudio: null
   },
   error: {
@@ -107,6 +111,7 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
       "The recorder command returned an error. Adjust the microphone choice or retry the action.",
     inputLabel: "System default microphone",
     durationLabel: "—",
+    recordingTiming: null,
     recordedAudio: null
   }
 };
@@ -167,6 +172,7 @@ export function getAppStatusForPhase(
     ...appStatusByPhase[phase],
     ...overrides,
     phase,
+    recordingTiming: overrides.recordingTiming ?? appStatusByPhase[phase].recordingTiming,
     recordedAudio: overrides.recordedAudio ?? appStatusByPhase[phase].recordedAudio
   };
 }
@@ -181,7 +187,8 @@ function createAppStatusStore() {
     setRecordedAudio: (recordedAudio: RecordedAudioMetadata | null) =>
       set({
         ...initialAppStatus,
-        recordedAudio
+        recordedAudio,
+        recordingTiming: null
       }),
     reset: () => set(initialAppStatus)
   };

@@ -16,8 +16,8 @@ use history_repository::{
     HistoryTranscriptionSummary, NewHistoryTranscription,
 };
 use recorder::{
-    ActiveRecordingSession, CancelledRecording, RecorderService, RecordingInputDevice,
-    StoppedRecording,
+    ActiveRecordingSession, CancelledRecording, RecorderService, RecorderSnapshot,
+    RecordingInputDevice, StoppedRecording,
 };
 use serde::Serialize;
 use tauri::Manager;
@@ -79,6 +79,15 @@ fn start_recording(
     recorder_service
         .start(device_name)
         .map_err(|error| format!("failed to start recording: {error}"))
+}
+
+#[tauri::command]
+fn get_recording_status(
+    recorder_service: State<'_, RecorderService>,
+) -> Result<RecorderSnapshot, String> {
+    recorder_service
+        .snapshot()
+        .map_err(|error| format!("failed to read recording status: {error}"))
 }
 
 #[tauri::command]
@@ -230,6 +239,7 @@ pub fn run() {
             clear_history,
             list_recording_input_devices,
             start_recording,
+            get_recording_status,
             stop_recording,
             cancel_recording,
             run_mock_transcription
