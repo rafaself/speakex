@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
+  import { fade } from "svelte/transition";
 
   export let label: string;
   export let value: string;
@@ -182,7 +183,13 @@
     </button>
 
     {#if isOpen}
-      <div id={listboxId} class="menu-panel" role="listbox" aria-label={label}>
+      <div
+        id={listboxId}
+        class="menu-panel"
+        role="listbox"
+        aria-label={label}
+        transition:fade={{ duration: 140 }}
+      >
         {#each options as option, index}
           <button
             bind:this={optionElements[index]}
