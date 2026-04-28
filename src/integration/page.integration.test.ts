@@ -279,6 +279,34 @@ describe("+page integration", () => {
     expect(screen.getByText(/was cancelled and the temporary file was deleted/i)).toBeTruthy();
   });
 
+  it("shows the detected language inside the auto-detect option label", async () => {
+    const user = userEvent.setup();
+    secretStoreMocks.hasGeminiApiKey.mockResolvedValue(true);
+
+    render(Page);
+
+    await screen.findByRole("heading", { name: "Where should we begin?" });
+    await user.click(screen.getByRole("button", { name: "Start recording" }));
+
+    await waitFor(() => {
+      expect(recordingMocks.startRecording).toHaveBeenCalledWith(null);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(recordingMocks.stopRecording).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Run transcription" }));
+
+    expect(await screen.findByText("Transcript ready")).toBeTruthy();
+
+    await user.click(screen.getAllByRole("button", { name: "Settings" })[0]);
+
+    expect(await screen.findByText("Auto-detect (English (US))")).toBeTruthy();
+  });
+
   it("manages settings actions for Gemini, audio retention, and shortcuts", async () => {
     const user = userEvent.setup();
     const persistedSettings = {

@@ -99,6 +99,17 @@
       ? ($recordingInputOptions.find((option) => option.isDefault && !(option.unavailable ?? false))?.value ??
           defaultRecordingInputOption.value)
       : $settingsDraft.selectedMicrophone;
+  $: detectedLanguageCode =
+    latestTranscript?.language ??
+    latestManualTranscriptionResult?.transcript.language ??
+    selectedHistoryEntry?.language ??
+    null;
+  $: detectedLanguageLabel = resolveLanguageOptionLabel(detectedLanguageCode);
+  $: settingsLanguageOptions = languageOptions.map((option) =>
+    option.value === "auto" && detectedLanguageLabel !== null
+      ? { ...option, label: `Auto-detect (${detectedLanguageLabel})` }
+      : option
+  );
   $: selectedMicrophoneOption =
     $recordingInputOptions.find((option) => option.value === effectiveSelectedMicrophoneValue) ??
     defaultRecordingInputOption;
@@ -469,6 +480,14 @@
     );
   }
 
+  function resolveLanguageOptionLabel(languageCode: string | null | undefined) {
+    if (!languageCode) {
+      return null;
+    }
+
+    return languageOptions.find((option) => option.value === languageCode)?.label ?? languageCode;
+  }
+
   const recordingController = createRecordingController({
     getSettingsDraft: () => get(settingsDraft),
     setAvailableRecordingDevices: (devices) => {
@@ -711,7 +730,7 @@
         settingsDraft={$settingsDraft}
         selectedMicrophoneValue={effectiveSelectedMicrophoneValue}
         recordingInputOptions={$recordingInputOptions}
-        languageOptions={languageOptions}
+        languageOptions={settingsLanguageOptions}
         geminiApiKeyPresence={geminiApiKeyPresence}
         geminiApiKeyStatusMessage={geminiApiKeyStatusMessage}
         settingsStatusMessage={settingsStatusMessage}

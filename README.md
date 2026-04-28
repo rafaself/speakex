@@ -49,15 +49,8 @@ SpeakEx is currently configured for a Linux-first AppImage packaging path.
 
 - On Linux hosts, run the packaging build from the repo root with `npm run tauri build`; the wrapper script automatically uses the `speakex-dev` Toolbox container.
 - If you are already inside that Toolbox environment, `npm run tauri build` runs locally inside the container without nesting Toolbox calls.
+- The Linux build wrapper automatically sets `NO_STRIP=1` for `tauri build` so AppImage bundling skips the failing `linuxdeploy` strip step on `.relr.dyn` libraries.
 - When AppImage bundling succeeds, expect the final bundle under `src-tauri/target/release/bundle/appimage/`, with the release artifact appearing there as `SpeakEx_0.1.0_amd64.AppImage`.
-
-### Current environment limitation
-
-In this Fedora 43 packaging environment, the build reaches the AppImage bundling phase and stages `src-tauri/target/release/bundle/appimage/SpeakEx.AppDir`, but `linuxdeploy` then fails during its `strip` step on bundled libraries that contain `.relr.dyn` ELF sections:
-
-- `unknown type [0x13] section '.relr.dyn'`
-
-This is an environment-specific Linux AppImage bundling incompatibility in the current packaging toolchain, not a SpeakEx runtime failure and not evidence of a macOS or Windows build problem. The cross-platform workflow avoids this known packaging-only issue by validating `npm run tauri build -- --debug --no-bundle` instead of installer or AppImage bundling.
 
 ## Notes
 

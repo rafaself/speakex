@@ -36,6 +36,10 @@ function hasToolboxContainer() {
 }
 
 const tauriArgs = process.argv.slice(2);
+const shouldDisableStrip =
+  process.platform === "linux" &&
+  tauriArgs[0] === "build" &&
+  (process.env.NO_STRIP === undefined || process.env.NO_STRIP === "");
 const shouldUseToolbox =
   process.platform === "linux" &&
   process.env.SPEAKEX_SKIP_TOOLBOX !== "1" &&
@@ -54,6 +58,7 @@ if (shouldUseToolbox) {
     `cd ${shellQuote(process.cwd())}`,
     "&&",
     "PATH=\"$PWD/node_modules/.bin:$PATH\"",
+    ...(shouldDisableStrip ? ["NO_STRIP=1"] : []),
     "SPEAKEX_SKIP_TOOLBOX=1",
     "tauri",
     ...tauriArgs.map(shellQuote),
@@ -62,4 +67,11 @@ if (shouldUseToolbox) {
   process.exit(run("toolbox", ["run", "-c", TOOLBOX_NAME, "bash", "-lc", command]));
 }
 
-process.exit(run("tauri", tauriArgs));
+process.exit(
+  run("tauri", tauriArgs, {
+    env: {
+      ...process.env,
+      ...(shouldDisableStrip ? { NO_STRIP: "1" } : {}),
+    },
+  }),
+);
