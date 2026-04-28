@@ -81,7 +81,7 @@
 </div>
 
 <footer class="footer-disclaimer">
-  By messaging ChatGPT, you agree to our <button class="legal-link" type="button">Terms</button> and have read
+  By using SpeakEx, you agree to our <button class="legal-link" type="button">Terms</button> and have read
   our <button class="legal-link" type="button">Privacy Policy</button>. See
   <button class="legal-link" type="button">Cookie Preferences</button>.
 </footer>
