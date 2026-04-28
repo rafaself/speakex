@@ -144,7 +144,7 @@
   let availableRecordingDevices: RecordingInputDevice[] = [];
   let recordingCommandState: RecordingCommandState = null;
   let activeRecordingSession: ActiveRecordingSession | null = null;
-  let recordingStatusPoller: ReturnType<typeof window.setInterval> | null = null;
+  let recordingStatusPoller: number | null = null;
   let isRefreshingRecordingStatus = false;
   let latestRecordingStatus: RecordingStatus | null = null;
 
