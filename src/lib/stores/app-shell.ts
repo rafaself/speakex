@@ -38,9 +38,9 @@ export const navigationSections: NavigationSection[] = [
 ];
 
 export const recordingPlanSteps = [
-  "Load the available microphones from Rust before starting capture.",
-  "Poll explicit recorder status while capture is active so the UI can show elapsed, remaining, and max duration safely.",
-  "Keep stopping explicit so a completed local recording only transcribes when the user manually runs the Release 1.6 Rust flow, with retry available only while the recorded WAV file still exists and hidden-window failure notifications staying generic while detailed errors remain in-app."
+  "Choose from the available microphones before you start recording.",
+  "While recording is active, show elapsed time, remaining time, and the maximum duration clearly.",
+  "Stopping keeps the recording ready for either a mock transcript or a manual Gemini transcription. If a manual run fails, Retry stays available while the recorded audio file still exists, and hidden-window failure notifications stay generic."
 ];
 
 const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
@@ -49,10 +49,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Idle",
     headline: "Ready to capture a local recording.",
     detail:
-      "Release 1.6 keeps recording explicit while the manual Rust transcription flow owns Gemini execution, retry guidance, clipboard, history, default audio cleanup, hidden-window completion notifications, and generic hidden-window failure notifications while detailed errors stay in-app.",
+      "Recording stays separate from transcription. After you stop, you can run either a mock transcript or a manual Gemini transcription. Manual results can copy to the clipboard, save to history, clean up audio by default, and send desktop notifications only while SpeakEx is hidden.",
     transcriptTitle: "No recorded audio yet.",
     transcriptPreview:
-      "Start a recording to create a temporary WAV file, then run either the separate mock path or the explicit manual transcription flow once audio is ready. If a manual run fails before cleanup, retry stays available only while that local WAV file still exists.",
+      "Start a recording to create a temporary audio file, then choose either the mock transcript or manual Gemini transcription when you're ready. If a manual run fails before cleanup, Retry stays available while that audio file still exists.",
     inputLabel: "System default microphone",
     durationLabel: "—",
     recordingTiming: null,
@@ -63,10 +63,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Recording",
     headline: "Recording is in progress.",
     detail:
-      "Audio capture is active through Rust. Use Stop to keep the temporary WAV file or Cancel to discard it.",
+      "Audio capture is active. Use Stop to keep the current audio file or Cancel to discard it.",
     transcriptTitle: "Live capture in progress…",
     transcriptPreview:
-      "The app is recording into a temporary local WAV file. No transcription will run automatically when capture ends, including when the 15-minute cap is reached.",
+      "SpeakEx is recording to a temporary local audio file. No transcription runs automatically when capture ends, including at the 15-minute limit.",
     inputLabel: "System default microphone",
     durationLabel: "Recording…",
     recordingTiming: null,
@@ -77,10 +77,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Transcribing",
     headline: "Mock transcription is running.",
     detail:
-      "The frontend is waiting on the explicit Rust mock transcription command. Recorded audio is not sent into this mock flow.",
+      "SpeakEx is running the mock transcript command. Recorded audio is not sent through this mock path.",
     transcriptTitle: "Draft transcript incoming…",
     transcriptPreview:
-      "Transcription remains explicit in Release 1.6 so mock and manual Gemini runs stay separate from the recording lifecycle while manual retry guidance stays tied to the current local WAV file.",
+      "Mock and manual Gemini transcription stay separate from recording, and Retry only applies to the current recorded audio file while it is still available.",
     inputLabel: "System default microphone",
     durationLabel: "—",
     recordingTiming: null,
@@ -91,10 +91,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Completed",
     headline: "Recorded audio is ready.",
     detail:
-      "The recording stopped successfully and the temporary WAV file is ready for an explicit mock or manual transcription request. No transcription ran automatically, and manual retry remains possible only while this local file still exists.",
+      "Recording finished successfully and the audio file is ready for a mock transcript or manual Gemini transcription. No transcription ran automatically, and Retry only applies while this file still exists.",
     transcriptTitle: "Recorded audio metadata",
     transcriptPreview:
-      "The capture finished successfully. Review the local audio details below, then choose either the mock path or the full manual transcription flow.",
+      "Review the audio details below, then choose either the mock transcript or the full Gemini transcription flow.",
     inputLabel: "System default microphone",
     durationLabel: "—",
     recordingTiming: null,
@@ -105,10 +105,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Error",
     headline: "Recording workflow error.",
     detail:
-      "The requested recorder action did not finish. The UI keeps the mock transcription path separate from recording errors.",
+      "Recording ran into a problem. You can still use the mock transcript path separately from recording.",
     transcriptTitle: "Native recording error",
     transcriptPreview:
-      "The recorder command returned an error. Adjust the microphone choice or retry the action.",
+      "SpeakEx could not finish the recording action. Check your microphone selection and try again.",
     inputLabel: "System default microphone",
     durationLabel: "—",
     recordingTiming: null,
@@ -217,8 +217,8 @@ export const providerOptions: ProviderOption[] = [
   {
     id: "gemini",
     label: "Gemini",
-    blurb: "Remote provider used for the first MVP path.",
-    note: "Store the API key in the OS keychain here so the manual recording flow can transcribe, optionally copy, save history, and clean up audio."
+    blurb: "Remote transcription provider for the current MVP.",
+    note: "Save the API key in the OS keychain to enable manual Gemini transcription, optional clipboard copy, history saving, and automatic audio cleanup."
   }
 ];
 

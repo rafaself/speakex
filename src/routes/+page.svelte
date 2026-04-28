@@ -100,13 +100,13 @@
   const fallbackRecordingLimitMs = 15 * 60 * 1000;
   const recordingStatusPollIntervalMs = 1000;
   const hiddenManualNotificationReadyMessage =
-    "If SpeakEx is hidden when a manual transcription finishes, Rust can also send a desktop notification. Hidden failure notifications stay generic and point you back to SpeakEx for details.";
+    "If SpeakEx is hidden when a manual transcription finishes, the app can also send a desktop notification. Hidden failure notifications stay generic and point you back to SpeakEx for details.";
   const hiddenManualNotificationPendingMessage =
-    "If SpeakEx is hidden before the manual run finishes, Rust can also send a desktop notification. Completion can confirm success, while failure stays generic and points you back to SpeakEx for details.";
+    "If SpeakEx is hidden before the manual run finishes, the app can also send a desktop notification. Completion can confirm success, while failure stays generic and points you back to SpeakEx for details.";
   const hiddenManualNotificationCompletedMessage =
-    "If SpeakEx was hidden when this manual transcription finished, Rust may also have shown a desktop notification.";
+    "If SpeakEx was hidden when this manual transcription finished, you may also have seen a desktop notification.";
   const hiddenManualNotificationFailedMessage =
-    "If SpeakEx was hidden when this manual transcription failed, Rust may also have shown a generic desktop notification. The detailed error stays in SpeakEx.";
+    "If SpeakEx was hidden when this manual transcription failed, you may also have seen a generic desktop notification. The detailed error stays in SpeakEx.";
 
   let pingState: PingState = "idle";
   let pingResponse = "";
@@ -175,12 +175,12 @@
       : "Transcribe recording";
   $: recordingDevicesStatusMessage =
     recordingDevicesState === "loading"
-      ? "Loading available microphones from Rust…"
+      ? "Loading available microphones…"
       : recordingDevicesState === "error"
         ? recordingDevicesError
         : availableRecordingDevices.length === 0
-          ? "No recording inputs were reported by Rust."
-          : `${availableRecordingDevices.length} microphone${availableRecordingDevices.length === 1 ? "" : "s"} available from Rust.`;
+          ? "No microphones are available right now."
+          : `${availableRecordingDevices.length} microphone${availableRecordingDevices.length === 1 ? "" : "s"} ready to use.`;
   $: mockHistoryModeLabel = $settingsDraft.saveTranscriptionHistory
     ? "Mock transcripts will also be saved to local history."
     : "Mock transcripts will stay out of local history because Save transcription history is off.";
@@ -272,7 +272,7 @@
         ? historyError
         : historyEntries.length === 0
           ? "No saved transcripts yet."
-          : `${historyEntries.length} saved history entr${historyEntries.length === 1 ? "y is" : "ies are"} available locally. Select one to review its full details.`;
+          : `${historyEntries.length} saved transcript${historyEntries.length === 1 ? " is" : "s are"} available locally. Select one to review the full details.`;
   $: historyCountLabel =
     historyState === "loading"
       ? "Loading…"
@@ -288,7 +288,7 @@
     selectedHistorySummary?.title ??
     (selectedHistoryEntry
       ? createHistoryTitle(selectedHistoryEntry.text)
-      : "Select a saved history entry");
+      : "Select a saved transcript");
   $: historyDetailStatusLabel =
     historyDetailState === "loading"
       ? "Loading"
@@ -358,18 +358,18 @@
   $: manualTranscriptionStatusMessage =
     latestManualTranscriptionResult !== null
       ? manualTranscriptionWarnings.length === 0
-        ? `Manual transcription finished. Review the clipboard, history, and audio outcomes below. ${hiddenManualNotificationCompletedMessage}`
-        : `Manual transcription finished with warnings. Review the clipboard, history, and audio outcomes below. ${hiddenManualNotificationCompletedMessage}`
+        ? `Transcription finished. Review the clipboard, history, and audio results below. ${hiddenManualNotificationCompletedMessage}`
+        : `Transcription finished with warnings. Review the clipboard, history, and audio results below. ${hiddenManualNotificationCompletedMessage}`
       : latestManualTranscriptionFailure !== null
         ? hasRecoverableManualFailure
           ? geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"
-            ? "Manual transcription failed, but the completed WAV file is still available locally. Checking Settings before enabling Retry transcription…"
+            ? "Transcription failed, but the recorded audio file is still available. Checking Settings before enabling Retry transcription…"
             : geminiApiKeyPresenceState === "error"
-              ? "Manual transcription failed. The completed WAV file is still available locally, but SpeakEx could not verify the Gemini API key. Recheck Settings before using Retry transcription."
+              ? "Transcription failed. The recorded audio file is still available, but SpeakEx could not verify the Gemini API key. Check Settings before using Retry transcription."
               : !geminiApiKeyPresence
-                ? "Manual transcription failed. The completed WAV file is still available locally, but Retry transcription stays unavailable until you save a Gemini API key in Settings."
-                : `Manual transcription failed. The completed WAV file is still available locally, so use Retry transcription to rerun the same explicit Rust flow. ${hiddenManualNotificationFailedMessage}`
-          : `Manual transcription failed. Retry transcription is hidden because the completed WAV file is no longer available. Record again to create a new file before rerunning the explicit flow. ${hiddenManualNotificationFailedMessage}`
+                ? "Transcription failed. The recorded audio file is still available, but Retry transcription stays unavailable until you save a Gemini API key in Settings."
+                : `Transcription failed. The recorded audio file is still available, so use Retry transcription to try the same recording again. ${hiddenManualNotificationFailedMessage}`
+          : `Transcription failed. Retry transcription is hidden because the recorded audio file is no longer available. Record again to create a new file before trying again. ${hiddenManualNotificationFailedMessage}`
       : transcribableRecordedAudio === null
         ? "Complete a local recording first, then run transcription manually from this screen."
       : geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"
@@ -379,22 +379,22 @@
             : !geminiApiKeyPresence
               ? "Save a Gemini API key in Settings before running Gemini on the current recording."
               : isRunningManualTranscription
-                ? `Gemini is transcribing the current local recording in Rust. Clipboard, history, and audio cleanup follow the saved settings. ${hiddenManualNotificationPendingMessage}`
-                : `Gemini can transcribe the current completed local recording on demand through the full Rust manual flow. ${hiddenManualNotificationReadyMessage}`;
+                ? `Gemini is transcribing the current recording. Clipboard, history, and audio cleanup follow your saved settings. ${hiddenManualNotificationPendingMessage}`
+                : `Gemini is ready to transcribe the current recording on demand. ${hiddenManualNotificationReadyMessage}`;
   $: manualRecoveryGuidanceMessage =
     latestManualTranscriptionFailure === null
       ? null
       : hasRecoverableManualFailure
         ? geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"
-          ? "Retry will reuse the completed WAV file shown below as soon as SpeakEx finishes checking the Gemini key status."
+          ? "Retry will reuse the recorded audio shown below as soon as SpeakEx finishes checking the Gemini key status."
           : geminiApiKeyPresenceState === "error"
-            ? "The completed WAV file is still available locally, but Retry transcription stays blocked until Gemini key status can be checked again in Settings."
+            ? "The recorded audio file is still available, but Retry transcription stays blocked until Gemini key status can be checked again in Settings."
             : !geminiApiKeyPresence
-              ? "The completed WAV file is still available locally. Save a Gemini API key in Settings, then use Retry transcription to rerun the same manual flow."
-              : "Retry transcription will reuse the completed WAV file shown below and rerun the same explicit Rust manual flow."
+              ? "The recorded audio file is still available. Save a Gemini API key in Settings, then use Retry transcription to try the same recording again."
+              : "Retry transcription will reuse the recorded audio shown below and run Gemini again with the same file."
         : latestCompletedRecordingMetadata
-          ? `Retry transcription is hidden because SpeakEx can no longer find the completed WAV file at ${latestCompletedRecordingMetadata.path}. Record again to create a fresh local file before transcribing.`
-          : "Retry transcription is hidden because the completed WAV file is no longer available. Record again to create a fresh local file before transcribing.";
+          ? `Retry transcription is hidden because SpeakEx can no longer find the recorded audio file at ${latestCompletedRecordingMetadata.path}. Record again to create a fresh file before transcribing.`
+          : "Retry transcription is hidden because the recorded audio file is no longer available. Record again to create a fresh file before transcribing.";
   $: canStartRecording =
     recordingDevicesState === "ready" &&
     recordingCommandState === null &&
@@ -662,7 +662,7 @@
                 ? error.message
                 : "Unable to refresh the native recording status.",
             transcriptPreview:
-              "The UI could not read the explicit recorder status surface. No transcription ran automatically.",
+              "SpeakEx could not refresh the current recording status. No transcription ran automatically.",
             inputLabel: selectedMicrophoneLabel,
             recordingTiming: null,
             recordedAudio: get(appStatus).recordedAudio
@@ -716,8 +716,8 @@
       getAppStatusForPhase("recording", {
         headline: status.limitReached ? "Maximum duration reached." : "Finalizing recorded audio.",
         detail: status.limitReached
-          ? `Capture stopped automatically after reaching the ${formatDuration(status.maxDurationMs)} maximum. Finalizing the local WAV file now.`
-          : "The recorder has stopped. Finalizing the local WAV file now.",
+          ? `Capture stopped automatically after reaching the ${formatDuration(status.maxDurationMs)} limit. Finalizing the local recording now.`
+          : "Recording has stopped. Finalizing the local recording now.",
         transcriptPreview: status.limitReached
           ? "The app is preparing the completed recording after the automatic safety stop. No transcription will run automatically."
           : "The app is preparing the completed recording metadata. No transcription will run automatically.",
@@ -1194,7 +1194,7 @@
       getAppStatusForPhase("transcribing", {
         inputLabel: selectedMicrophoneLabel,
         detail:
-          "The frontend is waiting on the explicit Rust mock transcription command. Any recorded WAV file remains separate from this fake flow.",
+          "SpeakEx is running the mock transcript command. Any recorded audio remains separate from this sample result.",
         recordingTiming: previousRecordedAudio ? buildRecordingTimingFromRecordedAudio(previousRecordedAudio) : null,
         recordedAudio: previousRecordedAudio
       })
@@ -1218,7 +1218,7 @@
           inputLabel: selectedMicrophoneLabel,
           detail: error instanceof Error ? error.message : "Unable to finish the mock transcription flow.",
           transcriptPreview:
-            "The built-in mock transcription command did not finish. Any recorded audio remains local and separate from this fake provider path.",
+            "The mock transcript command did not finish. Any recorded audio remains local and separate from Gemini transcription.",
           recordingTiming: previousRecordedAudio ? buildRecordingTimingFromRecordedAudio(previousRecordedAudio) : null,
           recordedAudio: previousRecordedAudio
         })
@@ -1244,7 +1244,7 @@
         buildMissingManualRecordingStatus(
           transcribableRecordedAudio,
           latestManualTranscriptionFailure,
-          `The completed WAV file is gone, so the explicit Rust manual transcription flow cannot start and Retry transcription stays hidden. Record again to create a fresh local file before transcribing. ${hiddenManualNotificationFailedMessage}`
+          `The recorded audio file is gone, so manual transcription cannot start and Retry transcription stays hidden. Record again to create a fresh file before transcribing. ${hiddenManualNotificationFailedMessage}`
         )
       );
       return;
@@ -1269,9 +1269,9 @@
         headline: "Manual transcription is running.",
         inputLabel: transcribableRecordedAudio.inputDeviceName,
         detail:
-          "The frontend is waiting on the explicit Rust manual transcription command for the current completed WAV file. Rust will also handle clipboard, history, default audio cleanup, retryable failure state, hidden-window completion notifications, and generic hidden-window failure notifications.",
+          "SpeakEx is transcribing the current recorded audio with Gemini. Clipboard, history, default audio cleanup, retryable failure state, and hidden-window notifications follow your saved settings.",
         transcriptTitle: "Transcript incoming…",
-        transcriptPreview: `${formatFileName(transcribableRecordedAudio.path)} is being transcribed through the explicit Rust manual flow.`,
+        transcriptPreview: `${formatFileName(transcribableRecordedAudio.path)} is being transcribed with Gemini.`,
         durationLabel: formatDuration(transcribableRecordedAudio.durationMs),
         recordingTiming: buildRecordingTimingFromRecordedAudio(transcribableRecordedAudio),
         recordedAudio: transcribableRecordedAudio
@@ -1309,8 +1309,8 @@
           detail: manualFailureDetail,
           transcriptPreview:
             retryableRecordedAudio === null
-              ? `The explicit manual transcription command did not finish, and the completed WAV file is no longer available for recovery. Retry transcription is hidden until you record again. ${hiddenManualNotificationFailedMessage}`
-              : `The explicit manual transcription command did not finish, but the completed WAV file remains local so you can use Retry transcription to rerun the same Rust flow. ${hiddenManualNotificationFailedMessage}`,
+              ? `Transcription did not finish, and the recorded audio file is no longer available for recovery. Retry transcription is hidden until you record again. ${hiddenManualNotificationFailedMessage}`
+              : `Transcription did not finish, but the recorded audio file remains local so you can use Retry transcription to try the same recording again. ${hiddenManualNotificationFailedMessage}`,
           durationLabel: formatDuration(transcribableRecordedAudio.durationMs),
           recordingTiming: buildRecordingTimingFromRecordedAudio(transcribableRecordedAudio),
           recordedAudio: retryableRecordedAudio
@@ -1352,8 +1352,8 @@
           recordingDevicesState === "error"
             ? "Microphone loading failed. Retry device loading or switch to the mock transcription flow while recording is unavailable."
             : selectedMicrophoneUnavailable
-              ? "Choose an available microphone before starting a real recording. The saved selection is preserved so you can update it explicitly."
-              : "Start a recording to capture a temporary WAV file locally, then run either the mock path or the full manual transcription flow.",
+              ? "Choose an available microphone before starting a recording. Your saved selection stays in place until you update it."
+              : "Start a recording to capture a temporary audio file locally, then choose either the mock transcript or full Gemini transcription.",
         inputLabel: selectedMicrophoneLabel,
         durationLabel: "—",
         recordingTiming: null,
@@ -1364,7 +1364,7 @@
 
   function buildIdleDetail() {
     if (recordingDevicesState === "loading") {
-      return "Loading available microphones from Rust before the recording workflow becomes ready.";
+      return "Loading available microphones before recording becomes available.";
     }
 
     if (recordingDevicesState === "error") {
@@ -1372,10 +1372,10 @@
     }
 
     if (selectedMicrophoneUnavailable) {
-      return "The saved microphone is not currently available. Pick one of the loaded inputs before starting a real recording.";
+      return "The saved microphone is not currently available. Pick one of the loaded inputs before starting a recording.";
     }
 
-    return `Ready to record from ${selectedMicrophoneLabel}. Stop keeps the temporary WAV file and transcription remains a separate manual step.`;
+    return `Ready to record from ${selectedMicrophoneLabel}. Stop keeps the audio file so you can choose what to do next.`;
   }
 
   function resolveSelectedDeviceName() {
@@ -1449,9 +1449,9 @@
             : status.phase === "cancelling"
               ? "Recording is cancelling."
               : "Recording is in progress.",
-      detail: `Audio capture is active through Rust and will stop automatically at ${formatDuration(status.maxDurationMs)}. Use Stop to keep the temporary WAV file or Cancel to discard it sooner.`,
+      detail: `Audio capture is active and will stop automatically at ${formatDuration(status.maxDurationMs)}. Use Stop to keep the audio file or Cancel to discard it sooner.`,
       transcriptTitle: "Live capture in progress…",
-      transcriptPreview: `Recording session ${status.activeSessionId ?? "current"} is writing a temporary WAV file in the app cache. No transcription will run automatically, including when the duration limit is reached.`,
+      transcriptPreview: `Recording session ${status.activeSessionId ?? "current"} is saving a temporary audio file locally. No transcription will run automatically, including when the duration limit is reached.`,
       inputLabel: status.inputDeviceName ?? selectedMicrophoneLabel,
       durationLabel: buildDurationSummaryLabel(recordingTiming),
       recordingTiming,
@@ -1468,12 +1468,12 @@
         ? `Recording stopped at the ${formatDuration(recordingTiming.maxDurationMs)} limit.`
         : "Recorded audio is ready.",
       detail: stoppedRecording.limitReached
-        ? `Capture stopped automatically because the maximum recording duration of ${formatDuration(recordingTiming.maxDurationMs)} was reached. The WAV file was kept locally, and no transcription ran automatically.`
-        : "The recorder stopped successfully and kept the temporary WAV file locally. Choose mock or the full manual transcription flow when you are ready to transcribe.",
+        ? `Capture stopped automatically because the maximum recording duration of ${formatDuration(recordingTiming.maxDurationMs)} was reached. The audio file was kept locally, and no transcription ran automatically.`
+        : "Recording stopped successfully and kept the audio file locally. Choose the mock transcript or Gemini transcription when you are ready.",
       transcriptTitle: "Recorded audio metadata",
       transcriptPreview: stoppedRecording.limitReached
-        ? `${formatFileName(recordedAudio.path)} was captured locally after the automatic safety stop. Run mock or the manual transcription flow when you are ready.`
-        : `${formatFileName(recordedAudio.path)} is available locally and ready for explicit mock or manual transcription.`,
+        ? `${formatFileName(recordedAudio.path)} was captured locally after the automatic safety stop. Run a mock transcript or Gemini transcription when you are ready.`
+        : `${formatFileName(recordedAudio.path)} is available locally and ready for a mock transcript or Gemini transcription.`,
       inputLabel: stoppedRecording.inputDeviceName,
       durationLabel: buildDurationSummaryLabel(recordingTiming),
       recordingTiming,
@@ -1489,7 +1489,7 @@
 
     return getAppStatusForPhase("completed", {
       headline: "Mock transcript ready.",
-      detail: `${historyDetail} The result remains intentionally fake and separate from the Release 1.6 manual Gemini flow.`,
+      detail: `${historyDetail} This sample result is separate from Gemini transcription and does not use the recorded audio file.`,
       transcriptTitle: result.savedToHistory
         ? "Mock transcript saved locally"
         : "Mock transcript kept in memory only",
@@ -1770,15 +1770,15 @@
     errorMessage: string
   ): string {
     if (actionState === "loading") {
-      return "Checking the current recording shortcut status from Rust…";
+      return "Checking the current recording shortcut status…";
     }
 
     if (actionState === "applying") {
-      return "Saving the shortcut locally and applying it in Rust…";
+      return "Saving the shortcut locally and applying it now…";
     }
 
     if (actionState === "reapplying") {
-      return "Retrying the saved shortcut registration in Rust…";
+      return "Trying the saved shortcut again…";
     }
 
     if (actionState === "clearing") {
@@ -1797,7 +1797,7 @@
       const activeShortcut = status.activeShortcut ?? status.requestedShortcut ?? "the current shortcut";
 
       if (status.source === "default") {
-        return `No saved shortcut exists, so Rust registered the default ${activeShortcut}.`;
+        return `No saved shortcut exists, so SpeakEx registered the default ${activeShortcut}.`;
       }
 
       if (status.source === "saved") {
@@ -1808,7 +1808,7 @@
     }
 
     if (status.state === "invalid") {
-      return status.detail ?? "The saved recording shortcut could not be parsed by Rust.";
+      return status.detail ?? "The saved recording shortcut could not be parsed.";
     }
 
     if (status.state === "unavailable") {
@@ -1860,21 +1860,21 @@
 </script>
 
 <svelte:head>
-  <title>SpeakEx — Audio Recording</title>
+  <title>SpeakEx — Local-first Transcription</title>
   <meta
     name="description"
-    content="SpeakEx desktop app shell with real audio recording, manual transcription retry guidance, privacy-safe hidden-window transcription notifications, history, and settings views."
+    content="SpeakEx desktop app with local recording, mock and manual transcription flows, retry guidance, privacy-safe hidden-window notifications, history, and settings."
   />
 </svelte:head>
 
 <main class="app-shell">
   <aside class="sidebar">
     <div class="brand-block">
-      <p class="eyebrow">Release 1.6</p>
+      <p class="eyebrow">Local-first desktop transcription</p>
       <h1>SpeakEx</h1>
       <p class="brand-copy">
-        Local-first transcription for the desktop. Release 1.6 keeps the manual flow explicit while
-        clarifying retry guidance and privacy-safe hidden-window failure notifications.
+        Local-first transcription for the desktop. Record audio, run a mock transcript for testing,
+        or transcribe a completed recording with Gemini when you are ready.
       </p>
     </div>
 
@@ -1893,12 +1893,12 @@
 
     <section class="bridge-card" aria-live="polite">
       <div>
-        <p class="label">Native bridge</p>
-        <h2>Rust ping status</h2>
+        <p class="label">App connection</p>
+        <h2>Connection check</h2>
       </div>
 
       {#if pingState === "loading" || pingState === "idle"}
-        <p class="bridge-status pending">Checking the existing <code>ping</code> command…</p>
+        <p class="bridge-status pending">Checking the app connection…</p>
       {:else if pingState === "success"}
         <p class="bridge-status success">Connected: <strong>{pingResponse}</strong></p>
       {:else}
@@ -1906,7 +1906,7 @@
       {/if}
 
       <button type="button" class="ghost-button" on:click={runPing} disabled={pingState === "loading"}>
-        {pingState === "loading" ? "Checking…" : "Recheck bridge"}
+        {pingState === "loading" ? "Checking…" : "Recheck connection"}
       </button>
     </section>
   </aside>
@@ -1914,28 +1914,28 @@
   <section class="workspace">
     <header class="workspace-header">
       <div>
-        <p class="eyebrow">App shell</p>
+        <p class="eyebrow">Workspace</p>
         <h2>
           {#if $activeSection === "recording"}
             Recording workspace
           {:else if $activeSection === "history"}
             Transcript history
           {:else}
-            Settings draft
+            Settings
           {/if}
         </h2>
       </div>
         <p class="workspace-copy">
           {#if $activeSection === "recording"}
-          The recording workspace keeps manual transcription explicit and now explains retry and
-          recovery guidance alongside clipboard, history, audio outcomes, and privacy-safe
-          hidden-window notification behavior.
+          Record audio, then choose a mock transcript or manual Gemini transcription. Retry only
+          appears while the recorded audio file is still available, and hidden-window notifications
+          stay privacy-safe.
         {:else if $activeSection === "history"}
-          Saved transcript history loads from the local database, and the selected detail panel now
-          shows the full transcript plus stored clipboard and audio outcomes.
+          Saved transcripts stay on this device, and the selected detail panel shows the full text
+          plus the clipboard and audio outcomes saved with each entry.
         {:else}
-          Provider selection, shortcut state, and preferences hydrate from local storage, while the
-          preferred microphone reflects the real device list exposed by Rust.
+          Choose a provider, manage the global shortcut, and store preferences locally. Your
+          preferred microphone reflects the devices SpeakEx can use right now.
         {/if}
       </p>
     </header>
@@ -1947,12 +1947,12 @@
             <p class="label">Recorder controls</p>
             <h3>{$appStatus.headline}</h3>
             <p>{$appStatus.detail}</p>
-            <p class="provider-caption">Current draft provider: <strong>{selectedProviderLabel}</strong></p>
+            <p class="provider-caption">Selected provider: <strong>{selectedProviderLabel}</strong></p>
             <p class:pending={recordingDevicesState === "loading"} class:success={recordingDevicesState === "ready"} class:error={recordingDevicesState === "error"}>
               {recordingDevicesStatusMessage}
             </p>
-            <p class="phase-note">Release 1.6 keeps recording explicit. Stop still only creates a completed local recording until you transcribe manually.</p>
-            <p class="phase-note">After a manual failure, Retry transcription only stays available while the completed WAV file still exists locally.</p>
+            <p class="phase-note">Recording stays separate from transcription. Stop keeps the current recording ready until you choose what happens next.</p>
+            <p class="phase-note">After a manual failure, Retry transcription only stays available while the recorded audio file still exists locally.</p>
             <p class="phase-note">Desktop notifications only cover manual transcription outcomes while SpeakEx is hidden. Failure notifications stay generic and keep details in the app.</p>
             <p class="phase-note"><strong>{recordingLimitLabel}</strong> · Elapsed {elapsedTimeLabel} · Remaining {remainingTimeLabel}</p>
             <p class="phase-note">{mockHistoryModeLabel}</p>
@@ -2193,8 +2193,8 @@
         <section class="card controller-card">
           <div class="section-heading">
             <div>
-              <p class="label">Recorder bridge</p>
-              <h3>Current native state</h3>
+              <p class="label">Recorder status</p>
+              <h3>Current recording state</h3>
             </div>
           </div>
 
@@ -2209,10 +2209,8 @@
             <p class="label">Visible now</p>
             <h3>{$appStatus.phaseLabel}</h3>
             <p>
-              The UI currently shows the <strong>{$appStatus.phase}</strong> phase while the frontend
-              coordinates explicit <code>start_recording</code>, <code>get_recording_status</code>,
-              <code>stop_recording</code>, <code>cancel_recording</code>, and
-              <code>run_completed_recording_transcription</code> commands.
+              This panel shows whether SpeakEx is idle, recording, transcribing, ready, or showing
+              an error.
             </p>
           </div>
 
@@ -2274,8 +2272,8 @@
         <section class="card steps-card">
           <div class="section-heading">
             <div>
-              <p class="label">Planned flow</p>
-              <h3>What this shell prepares for</h3>
+              <p class="label">How it works</p>
+              <h3>Recording and transcription overview</h3>
             </div>
           </div>
 
@@ -2299,9 +2297,9 @@
             </span>
           </div>
           <p>
-            This view reads saved transcripts from SQLite through explicit native commands. Each saved
-            card summarizes clipboard and audio outcomes, and the selected detail panel shows the full
-            transcript plus stored metadata without leaving this screen.
+            This view shows transcripts saved on this device. Each saved card summarizes clipboard
+            and audio outcomes, and the detail panel shows the full transcript plus its saved
+            metadata without leaving this screen.
           </p>
           <div class="history-toolbar">
             <p class:pending={historyState === "loading"} class:success={historyState === "ready" && historyError === ""} class:error={historyError !== ""}>
@@ -2332,7 +2330,7 @@
           <section class="card empty-card">
             <p class="label">History</p>
             <h3>Loading saved transcripts</h3>
-            <p>The app is requesting the current transcript list from the local SQLite history store.</p>
+            <p>SpeakEx is loading the current list of saved transcripts.</p>
           </section>
         {:else if historyState === "error"}
           <section class="card empty-card">
@@ -2347,9 +2345,7 @@
           <section class="card empty-card">
             <p class="label">History</p>
             <h3>No saved transcripts yet</h3>
-            <p>
-              Local history storage is ready, but the database does not contain any transcripts yet.
-            </p>
+<p>Your local history is empty for now. Save a transcript to see it here.</p>
           </section>
         {:else}
           {#if historyError !== ""}
@@ -2363,7 +2359,7 @@
           <section class="card list-card history-detail-card">
             <div class="section-heading">
               <div>
-                <p class="label">Selected history entry</p>
+                <p class="label">Selected transcript</p>
                 <h3>{historyDetailTitle}</h3>
               </div>
               <span
@@ -2378,10 +2374,7 @@
             {#if historyDetailState === "loading"}
               <div class="transcript-placeholder">
                 <p>Loading transcript details…</p>
-                <p>
-                  The app is requesting the full saved transcript and metadata through the explicit
-                  <code>get_transcription</code> command.
-                </p>
+<p>SpeakEx is loading the full saved transcript and its metadata.</p>
               </div>
             {:else if historyDetailState === "error"}
               <div class="current-state-panel phase-error">
@@ -2447,8 +2440,8 @@
               </div>
             {:else}
               <div class="transcript-placeholder">
-                <p>Choose a saved history entry</p>
-                <p>Select an item from the list below to inspect its full stored text and outcomes.</p>
+                <p>Choose a saved transcript</p>
+                <p>Select an item below to inspect its full text and saved outcomes.</p>
               </div>
             {/if}
           </section>
@@ -2555,8 +2548,8 @@
           <p class="label">Recording shortcut</p>
           <h3>Manage the global recording shortcut</h3>
           <p>
-            Save a shortcut override here, apply it immediately through Rust, or clear it for the
-            current session. When no saved shortcut exists, app startup still tries the default
+            Save a shortcut override here, apply it right away, or clear it for the current session.
+            When no saved shortcut exists, app startup still tries the default
             <code>Ctrl+Alt+A</code>.
           </p>
 
@@ -2724,7 +2717,7 @@
           <div class="setting-row">
             <div>
               <h4>Auto-copy transcript</h4>
-              <p>When enabled, the manual recording flow copies successful transcripts through Rust.</p>
+              <p>When enabled, manual Gemini transcription copies successful transcripts automatically.</p>
             </div>
             <button type="button" class="toggle-button" class:active={$settingsDraft.autoCopy} aria-pressed={$settingsDraft.autoCopy} on:click={() => toggleSetting("autoCopy")}>
               {$settingsDraft.autoCopy ? "On" : "Off"}
@@ -2734,7 +2727,7 @@
           <div class="setting-row">
             <div>
               <h4>Save transcription history</h4>
-              <p>When enabled, the manual recording flow saves transcripts to the local SQLite history.</p>
+              <p>When enabled, manual Gemini transcription saves transcripts to local history.</p>
             </div>
             <button
               type="button"

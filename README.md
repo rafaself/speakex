@@ -10,6 +10,27 @@ Release 0.1 bootstrap for a local-first desktop transcription app built with Tau
 - `npm run build` — build the frontend bundle
 - `npm run tauri build` — build the desktop application
 
+## Cross-platform validation (Release 1.8)
+
+SpeakEx now includes a GitHub Actions workflow at `.github/workflows/cross-platform-validation.yml` that validates the existing desktop build surface on:
+
+- `ubuntu-latest`
+- `macos-latest`
+- `windows-latest`
+
+On every push and pull request, the workflow runs:
+
+- `npm ci`
+- `npm run check`
+- `npm run build`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml`
+- Linux only: `cargo fmt --manifest-path src-tauri/Cargo.toml --all --check`
+- Linux only: `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+- `npm run tauri build -- --debug --no-bundle`
+
+This validates that the frontend, Rust backend, and Tauri desktop app still compile across Linux, macOS, and Windows without requiring platform-specific release bundling in CI.
+
 ## Linux packaging (Release 1.7)
 
 SpeakEx is currently configured for a Linux-first AppImage packaging path.
@@ -24,7 +45,7 @@ In this Fedora 43 packaging environment, the build reaches the AppImage bundling
 
 - `unknown type [0x13] section '.relr.dyn'`
 
-This is an environment-specific `linuxdeploy`/toolchain incompatibility, not a SpeakEx runtime failure.
+This is an environment-specific Linux AppImage bundling incompatibility in the current packaging toolchain, not a SpeakEx runtime failure and not evidence of a macOS or Windows build problem. The Release 1.8 cross-platform workflow avoids this known packaging-only issue by validating `npm run tauri build -- --debug --no-bundle` instead of installer or AppImage bundling.
 
 ## Notes
 
