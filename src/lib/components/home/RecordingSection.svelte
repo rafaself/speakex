@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { fade } from "svelte/transition";
+
   import type { Transcript } from "$lib/native/transcription";
   import type { RecordedAudioMetadata } from "$lib/types/app-shell";
 
@@ -53,60 +55,66 @@
           />
           <div class="input-actions">
             {#if isRecordingActive}
-              <button
-                class="icon-btn destructive-btn"
-                title="Discard recording"
-                aria-label="Discard recording"
-                type="button"
-                on:click={onDiscardRecording}
-                disabled={!canDiscardRecording}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
-              </button>
-              <button
-                class="icon-btn confirm-btn"
-                title="Confirm recording and transcribe"
-                aria-label="Confirm recording and transcribe"
-                type="button"
-                on:click={onConfirmRecordingAndTranscribe}
-                disabled={!canConfirmRecordingAndTranscribe}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M20 6L9 17l-5-5" />
-                </svg>
-              </button>
+              <div class="recording-actions" in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}>
+                <button
+                  class="icon-btn destructive-btn"
+                  title="Discard recording"
+                  aria-label="Discard recording"
+                  type="button"
+                  on:click={onDiscardRecording}
+                  disabled={!canDiscardRecording}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
+                <button
+                  class="icon-btn confirm-btn"
+                  title="Confirm recording and transcribe"
+                  aria-label="Confirm recording and transcribe"
+                  type="button"
+                  on:click={onConfirmRecordingAndTranscribe}
+                  disabled={!canConfirmRecordingAndTranscribe}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 6L9 17l-5-5" />
+                  </svg>
+                </button>
+              </div>
             {:else if hasTranscribableRecordedAudio}
-              <button
-                class="voice-btn"
-                type="button"
-                title={manualTranscriptionActionLabel}
-                aria-label={manualTranscriptionActionLabel}
-                on:click={onStartManualTranscription}
-                disabled={!canRunManualTranscription}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 1v22M5 8v8M19 8v8M9 11v2M15 11v2" />
-                </svg>
-                {manualTranscriptionActionLabel}
-              </button>
+              <div in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}>
+                <button
+                  class="voice-btn"
+                  type="button"
+                  title={manualTranscriptionActionLabel}
+                  aria-label={manualTranscriptionActionLabel}
+                  on:click={onStartManualTranscription}
+                  disabled={!canRunManualTranscription}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 1v22M5 8v8M19 8v8M9 11v2M15 11v2" />
+                  </svg>
+                  {manualTranscriptionActionLabel}
+                </button>
+              </div>
             {:else}
-              <button
-                class="voice-btn start-recording-btn"
-                type="button"
-                title="Start recording"
-                aria-label="Start recording"
-                on:click={onBeginRecording}
-                disabled={!canStartRecording}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                  <line x1="12" y1="19" x2="12" y2="23" />
-                  <line x1="8" y1="23" x2="16" y2="23" />
-                </svg>
-              </button>
+              <div in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}>
+                <button
+                  class="voice-btn start-recording-btn"
+                  type="button"
+                  title="Start recording"
+                  aria-label="Start recording"
+                  on:click={onBeginRecording}
+                  disabled={!canStartRecording}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" y1="19" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
+                  </svg>
+                </button>
+              </div>
             {/if}
           </div>
         </div>
@@ -268,6 +276,12 @@
     flex-wrap: wrap;
   }
 
+  .recording-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
   .icon-btn {
     width: 32px;
     height: 32px;
@@ -313,6 +327,13 @@
     padding: 0;
     border-radius: 999px;
     justify-content: center;
+    background: rgba(255, 255, 255, 0.06);
+    color: #c5c5c5;
+  }
+
+  .start-recording-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+    color: #d7d7d7;
   }
 
   .voice-btn:hover:not(:disabled) {

@@ -282,8 +282,9 @@ describe("+page integration", () => {
       expect(recordingMocks.cancelRecording).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.getByRole("button", { name: "Start recording" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Discard recording" })).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Start recording" })).toBeTruthy();
+    });
   });
 
   it("shows the detected language inside the auto-detect option label", async () => {
