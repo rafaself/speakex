@@ -33,6 +33,19 @@
     animationId = requestAnimationFrame(draw);
   }
 
+  // 5-tap Gaussian low-pass filter (weights 1,4,6,4,1) — removes high-frequency
+  // spatial noise so adjacent bars are correlated and the waveform reads as smooth.
+  function gaussianSmooth(amps: number[]): number[] {
+    return amps.map((_, i) => {
+      const a = amps[i - 2] ?? amps[i];
+      const b = amps[i - 1] ?? amps[i];
+      const c = amps[i];
+      const d = amps[i + 1] ?? amps[i];
+      const e = amps[i + 2] ?? amps[i];
+      return (a + b * 4 + c * 6 + d * 4 + e) / 16;
+    });
+  }
+
   function renderWaveform(time: number) {
     if (!ctx || !canvas) return;
 
@@ -46,7 +59,7 @@
     const gap = 2;
     const actualBarWidth = Math.max(1, barWidth - gap);
 
-    amplitudes.forEach((amp, i) => {
+    gaussianSmooth(amplitudes).forEach((amp, i) => {
       const x = i * barWidth;
       const barHeight = Math.max(4, amp * height * 0.8);
       const y = (height - barHeight) / 2;
