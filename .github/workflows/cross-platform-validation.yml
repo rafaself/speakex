@@ -1,0 +1,78 @@
+name: Cross-platform validation
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libasound2-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            pkg-config \
+            wget
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Check frontend
+        run: npm run check
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Check Rust formatting
+        if: runner.os == 'Linux'
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
+
+      - name: Check Rust
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Lint Rust
+        if: runner.os == 'Linux'
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Test Rust
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build Tauri app
+        run: npm run tauri build -- --debug --no-bundle
