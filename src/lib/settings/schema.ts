@@ -44,7 +44,7 @@ export const defaultAppSettings: AppSettings = Object.freeze({
   shortcut: null,
   autoCopy: true,
   saveAudioFiles: false,
-  saveTranscriptionHistory: true,
+  saveTranscriptionHistory: false,
   selectedMicrophone: "default"
 });
 

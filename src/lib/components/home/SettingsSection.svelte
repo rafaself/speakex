@@ -67,7 +67,9 @@
             </button>
           </div>
         </div>
-        <p class:status-ok={geminiApiKeyPresence} class="status-copy">{geminiApiKeyStatusMessage}</p>
+        {#if geminiApiKeyStatusMessage}
+          <p class:status-ok={geminiApiKeyPresence} class="status-copy">{geminiApiKeyStatusMessage}</p>
+        {/if}
       </section>
 
       <section class="settings-section">

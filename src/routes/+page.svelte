@@ -141,9 +141,7 @@
               ? geminiApiKeyStatusDetail
               : geminiApiKeyPresenceState === "loading"
                 ? "Checking the OS keychain for a saved Gemini API key…"
-                : geminiApiKeyPresence
-                  ? "Gemini API key is saved in the OS keychain."
-                  : "No Gemini API key is saved in the OS keychain.";
+                : "";
   $: savedRecordingShortcut = $settingsDraft.shortcut;
   $: isRecordingShortcutBusy =
     recordingShortcutActionState === "loading" ||

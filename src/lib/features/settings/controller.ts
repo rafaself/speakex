@@ -187,11 +187,7 @@ export function createSettingsController(context: SettingsControllerContext) {
       context.setGeminiApiKeyActionState("idle");
 
       if (showFeedback) {
-        context.setGeminiApiKeyStatusDetail(
-          geminiApiKeyPresence
-            ? "Gemini API key is available in the OS keychain."
-            : "No Gemini API key is saved in the OS keychain."
-        );
+        context.setGeminiApiKeyStatusDetail("");
       }
     } catch (error) {
       context.setGeminiApiKeyPresenceState("error");
@@ -325,8 +321,6 @@ export function createSettingsController(context: SettingsControllerContext) {
       return;
     }
 
-    const replacingExistingKey = context.getGeminiApiKeyPresence();
-
     context.setGeminiApiKeyActionState("saving");
     context.setGeminiApiKeyStatusDetail("");
 
@@ -336,11 +330,7 @@ export function createSettingsController(context: SettingsControllerContext) {
       context.setGeminiApiKeyPresence(true);
       context.setGeminiApiKeyPresenceState("present");
       context.setGeminiApiKeyActionState("idle");
-      context.setGeminiApiKeyStatusDetail(
-        replacingExistingKey
-          ? "Gemini API key replaced in the OS keychain."
-          : "Gemini API key saved to the OS keychain."
-      );
+      context.setGeminiApiKeyStatusDetail("");
     } catch (error) {
       context.setGeminiApiKeyActionState("error");
       context.setGeminiApiKeyPresenceState(

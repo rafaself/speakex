@@ -206,7 +206,7 @@ describe("createRecordingController", () => {
       getManualOutcomeSettingsSnapshot: () => ({
         autoCopy: true,
         saveAudioFiles: false,
-        saveTranscriptionHistory: true
+        saveTranscriptionHistory: false
       }),
       loadHistoryEntries: async () => undefined,
       formatDuration: (value) => String(value ?? "—"),
@@ -303,7 +303,7 @@ describe("createRecordingController", () => {
     expect(state.latestManualOutcomeSettings).toEqual({
       autoCopy: true,
       saveAudioFiles: false,
-      saveTranscriptionHistory: true
+      saveTranscriptionHistory: false
     });
     expect(state.loadedHistoryId).toBe("history-1");
     expect(state.appStatus).toMatchObject({

@@ -208,7 +208,7 @@ describe("createSettingsController", () => {
     expect(state.geminiApiKeyDraft).toBe("");
     expect(state.geminiApiKeyPresence).toBe(true);
     expect(state.geminiApiKeyPresenceState).toBe("present");
-    expect(state.geminiApiKeyStatusDetail).toBe("Gemini API key saved to the OS keychain.");
+    expect(state.geminiApiKeyStatusDetail).toBe("");
   });
 
   it("saves and applies the recording shortcut", async () => {
