@@ -45,18 +45,27 @@
             placeholder={geminiApiKeyPresence ? "••••••••••••" : "Enter API Key"}
           />
         </div>
-        <div class="action-row">
-          <button
-            class="primary-pill"
-            type="button"
-            on:click={onSubmitGeminiApiKey}
-            disabled={isGeminiApiKeyBusy || geminiApiKeyDraft.trim().length === 0}
-          >
-            {geminiApiKeyPrimaryActionLabel}
-          </button>
-          <button class="secondary-pill" type="button" on:click={onRemoveGeminiApiKey} disabled={!canRemoveGeminiApiKey}>
-            Remove saved key
-          </button>
+        <div class="action-bar">
+          <div class="action-group">
+            <button
+              class="secondary-pill"
+              type="button"
+              on:click={onRemoveGeminiApiKey}
+              disabled={!canRemoveGeminiApiKey}
+            >
+              Remove saved key
+            </button>
+          </div>
+          <div class="action-group action-group-end">
+            <button
+              class="primary-pill"
+              type="button"
+              on:click={onSubmitGeminiApiKey}
+              disabled={isGeminiApiKeyBusy || geminiApiKeyDraft.trim().length === 0}
+            >
+              {geminiApiKeyPrimaryActionLabel}
+            </button>
+          </div>
         </div>
         <p class:status-ok={geminiApiKeyPresence} class="status-copy">{geminiApiKeyStatusMessage}</p>
       </section>
@@ -145,31 +154,35 @@
             placeholder="e.g. CommandOrControl+Alt+A"
           />
         </div>
-        <div class="action-row">
-          <button
-            class="primary-pill"
-            type="button"
-            on:click={onSubmitRecordingShortcut}
-            disabled={isRecordingShortcutBusy || recordingShortcutDraft.trim().length === 0}
-          >
-            {recordingShortcutPrimaryActionLabel}
-          </button>
-          <button
-            class="secondary-pill"
-            type="button"
-            on:click={onReapplyRecordingShortcut}
-            disabled={!canReapplyRecordingShortcut}
-          >
-            Re-apply saved shortcut
-          </button>
-          <button
-            class="secondary-pill"
-            type="button"
-            on:click={onClearRecordingShortcut}
-            disabled={!canClearRecordingShortcut}
-          >
-            Clear shortcut
-          </button>
+        <div class="action-bar">
+          <div class="action-group">
+            <button
+              class="secondary-pill"
+              type="button"
+              on:click={onReapplyRecordingShortcut}
+              disabled={!canReapplyRecordingShortcut}
+            >
+              Re-apply saved shortcut
+            </button>
+            <button
+              class="secondary-pill"
+              type="button"
+              on:click={onClearRecordingShortcut}
+              disabled={!canClearRecordingShortcut}
+            >
+              Clear shortcut
+            </button>
+          </div>
+          <div class="action-group action-group-end">
+            <button
+              class="primary-pill"
+              type="button"
+              on:click={onSubmitRecordingShortcut}
+              disabled={isRecordingShortcutBusy || recordingShortcutDraft.trim().length === 0}
+            >
+              {recordingShortcutPrimaryActionLabel}
+            </button>
+          </div>
         </div>
         <p class="status-copy muted-copy">{recordingShortcutStatusMessage}</p>
       </section>
@@ -282,11 +295,25 @@
     color: #9b9b9b;
   }
 
-  .action-row {
+  .action-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 0.75rem;
+    gap: 1rem;
+  }
+
+  .action-group {
     display: flex;
     gap: 0.75rem;
-    flex-wrap: wrap;
-    margin-top: 0.75rem;
+    flex-wrap: nowrap;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .action-group-end {
+    margin-left: auto;
   }
 
   .secondary-pill {
