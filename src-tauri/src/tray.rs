@@ -174,8 +174,8 @@ pub fn sync_recording_menu_for_snapshot<R: Runtime>(
             return Ok(());
         };
 
-        preferred_input_available(app, recorder_service.inner()).unwrap_or_else(|error| {
-            eprintln!("{error}");
+        preferred_input_available(app, recorder_service.inner()).unwrap_or_else(|_| {
+            eprintln!("failed to refresh tray microphone availability");
             true
         })
     } else {
@@ -232,20 +232,20 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
             let _ = show_main_window(app);
         }
         Some(TrayMenuAction::StartRecording) => {
-            if let Err(error) = handle_start_recording(app) {
-                eprintln!("{error}");
+            if handle_start_recording(app).is_err() {
+                eprintln!("failed to start recording from the tray");
             }
             let _ = sync_recording_menu(app);
         }
         Some(TrayMenuAction::StopRecording) => {
-            if let Err(error) = handle_stop_recording(app) {
-                eprintln!("{error}");
+            if handle_stop_recording(app).is_err() {
+                eprintln!("failed to stop recording from the tray");
             }
             let _ = sync_recording_menu(app);
         }
         Some(TrayMenuAction::CancelRecording) => {
-            if let Err(error) = handle_cancel_recording(app) {
-                eprintln!("{error}");
+            if handle_cancel_recording(app).is_err() {
+                eprintln!("failed to cancel recording from the tray");
             }
             let _ = sync_recording_menu(app);
         }
@@ -366,8 +366,8 @@ fn load_preferred_microphone_name<R: Runtime>(app: &AppHandle<R>) -> Option<Stri
                 stored_value.as_ref().and_then(|value| value.as_str()),
             )
         }
-        Err(error) => {
-            eprintln!("failed to load tray recording settings: {error}");
+        Err(_) => {
+            eprintln!("failed to load tray recording settings");
             None
         }
     }

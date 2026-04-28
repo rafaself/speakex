@@ -191,10 +191,8 @@ fn handle_recording_shortcut_event<R: Runtime>(
     _shortcut: &Shortcut,
     event: ShortcutEvent,
 ) {
-    if event.state == ShortcutState::Pressed {
-        if let Err(error) = tray::toggle_recording(app) {
-            eprintln!("{error}");
-        }
+    if event.state == ShortcutState::Pressed && tray::toggle_recording(app).is_err() {
+        eprintln!("failed to toggle recording from the global shortcut");
     }
 }
 

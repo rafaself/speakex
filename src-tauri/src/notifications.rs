@@ -6,19 +6,17 @@ use crate::tray::MAIN_WINDOW_LABEL;
 const COMPLETION_TITLE: &str = "Transcription complete";
 const COMPLETION_BODY: &str = "Your recording has been transcribed.";
 const FAILURE_TITLE: &str = "Transcription failed";
-const FAILURE_FALLBACK_BODY: &str = "SpeakEx could not transcribe your recording.";
+const FAILURE_BODY: &str = "SpeakEx could not transcribe your recording. Open the app for details.";
 
 pub fn notify_manual_transcription_completed<R: Runtime>(app: &AppHandle<R>) {
-    if let Err(error) = show_if_main_window_hidden(app, COMPLETION_TITLE, COMPLETION_BODY) {
-        eprintln!("failed to send transcription completion notification: {error}");
+    if show_if_main_window_hidden(app, COMPLETION_TITLE, COMPLETION_BODY).is_err() {
+        eprintln!("failed to send transcription completion notification");
     }
 }
 
-pub fn notify_manual_transcription_failed<R: Runtime>(app: &AppHandle<R>, error: &str) {
-    if let Err(notification_error) =
-        show_if_main_window_hidden(app, FAILURE_TITLE, notification_failure_body(error))
-    {
-        eprintln!("failed to send transcription failure notification: {notification_error}");
+pub fn notify_manual_transcription_failed<R: Runtime>(app: &AppHandle<R>) {
+    if show_if_main_window_hidden(app, FAILURE_TITLE, notification_failure_body()).is_err() {
+        eprintln!("failed to send transcription failure notification");
     }
 }
 
@@ -54,21 +52,13 @@ fn should_show_for_window_visibility(is_visible: bool) -> bool {
     !is_visible
 }
 
-fn notification_failure_body(error: &str) -> String {
-    let trimmed = error.trim();
-
-    if trimmed.is_empty() {
-        FAILURE_FALLBACK_BODY.to_string()
-    } else {
-        trimmed.to_string()
-    }
+fn notification_failure_body() -> String {
+    FAILURE_BODY.to_string()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        notification_failure_body, should_show_for_window_visibility, FAILURE_FALLBACK_BODY,
-    };
+    use super::{notification_failure_body, should_show_for_window_visibility, FAILURE_BODY};
 
     #[test]
     fn only_shows_notifications_when_main_window_is_hidden() {
@@ -77,14 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn failure_notifications_fallback_when_error_is_blank() {
-        assert_eq!(
-            notification_failure_body("   "),
-            FAILURE_FALLBACK_BODY.to_string()
-        );
-        assert_eq!(
-            notification_failure_body(" Gemini transcription failed "),
-            "Gemini transcription failed".to_string()
-        );
+    fn failure_notifications_use_generic_privacy_safe_body() {
+        assert_eq!(notification_failure_body(), FAILURE_BODY.to_string());
     }
 }

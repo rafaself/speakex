@@ -100,13 +100,13 @@
   const fallbackRecordingLimitMs = 15 * 60 * 1000;
   const recordingStatusPollIntervalMs = 1000;
   const hiddenManualNotificationReadyMessage =
-    "If SpeakEx is hidden when a manual transcription finishes or fails, Rust can also send a desktop notification.";
+    "If SpeakEx is hidden when a manual transcription finishes, Rust can also send a desktop notification. Hidden failure notifications stay generic and point you back to SpeakEx for details.";
   const hiddenManualNotificationPendingMessage =
-    "If SpeakEx is hidden before the manual run finishes, Rust can also send a desktop notification for completion or failure.";
+    "If SpeakEx is hidden before the manual run finishes, Rust can also send a desktop notification. Completion can confirm success, while failure stays generic and points you back to SpeakEx for details.";
   const hiddenManualNotificationCompletedMessage =
     "If SpeakEx was hidden when this manual transcription finished, Rust may also have shown a desktop notification.";
   const hiddenManualNotificationFailedMessage =
-    "If SpeakEx was hidden when this manual transcription failed, Rust may also have shown a desktop notification.";
+    "If SpeakEx was hidden when this manual transcription failed, Rust may also have shown a generic desktop notification. The detailed error stays in SpeakEx.";
 
   let pingState: PingState = "idle";
   let pingResponse = "";
@@ -1269,7 +1269,7 @@
         headline: "Manual transcription is running.",
         inputLabel: transcribableRecordedAudio.inputDeviceName,
         detail:
-          "The frontend is waiting on the explicit Rust manual transcription command for the current completed WAV file. Rust will also handle clipboard, history, default audio cleanup, retryable failure state, and any hidden-window completion or failure notifications.",
+          "The frontend is waiting on the explicit Rust manual transcription command for the current completed WAV file. Rust will also handle clipboard, history, default audio cleanup, retryable failure state, hidden-window completion notifications, and generic hidden-window failure notifications.",
         transcriptTitle: "Transcript incoming…",
         transcriptPreview: `${formatFileName(transcribableRecordedAudio.path)} is being transcribed through the explicit Rust manual flow.`,
         durationLabel: formatDuration(transcribableRecordedAudio.durationMs),
@@ -1489,7 +1489,7 @@
 
     return getAppStatusForPhase("completed", {
       headline: "Mock transcript ready.",
-      detail: `${historyDetail} The result remains intentionally fake and separate from the Release 1.5 manual Gemini flow.`,
+      detail: `${historyDetail} The result remains intentionally fake and separate from the Release 1.6 manual Gemini flow.`,
       transcriptTitle: result.savedToHistory
         ? "Mock transcript saved locally"
         : "Mock transcript kept in memory only",
@@ -1863,19 +1863,18 @@
   <title>SpeakEx — Audio Recording</title>
   <meta
     name="description"
-    content="SpeakEx desktop app shell with real audio recording, manual transcription retry guidance, hidden-window transcription notifications, history, and settings views."
+    content="SpeakEx desktop app shell with real audio recording, manual transcription retry guidance, privacy-safe hidden-window transcription notifications, history, and settings views."
   />
 </svelte:head>
 
 <main class="app-shell">
   <aside class="sidebar">
     <div class="brand-block">
-      <p class="eyebrow">Release 1.5</p>
+      <p class="eyebrow">Release 1.6</p>
       <h1>SpeakEx</h1>
       <p class="brand-copy">
-        Local-first transcription for the desktop. Release 1.5 keeps the manual flow explicit while
-        clarifying when Retry transcription can reuse the current WAV file and when a new recording
-        is required.
+        Local-first transcription for the desktop. Release 1.6 keeps the manual flow explicit while
+        clarifying retry guidance and privacy-safe hidden-window failure notifications.
       </p>
     </div>
 
@@ -1929,8 +1928,8 @@
         <p class="workspace-copy">
           {#if $activeSection === "recording"}
           The recording workspace keeps manual transcription explicit and now explains retry and
-          recovery guidance alongside clipboard, history, audio outcomes, and hidden-window
-          completion or failure notifications.
+          recovery guidance alongside clipboard, history, audio outcomes, and privacy-safe
+          hidden-window notification behavior.
         {:else if $activeSection === "history"}
           Saved transcript history loads from the local database, and the selected detail panel now
           shows the full transcript plus stored clipboard and audio outcomes.
@@ -1952,9 +1951,9 @@
             <p class:pending={recordingDevicesState === "loading"} class:success={recordingDevicesState === "ready"} class:error={recordingDevicesState === "error"}>
               {recordingDevicesStatusMessage}
             </p>
-            <p class="phase-note">Release 1.5 keeps recording explicit. Stop still only creates a completed local recording until you transcribe manually.</p>
+            <p class="phase-note">Release 1.6 keeps recording explicit. Stop still only creates a completed local recording until you transcribe manually.</p>
             <p class="phase-note">After a manual failure, Retry transcription only stays available while the completed WAV file still exists locally.</p>
-            <p class="phase-note">Desktop notifications only cover manual transcription completion or failure while SpeakEx is hidden.</p>
+            <p class="phase-note">Desktop notifications only cover manual transcription outcomes while SpeakEx is hidden. Failure notifications stay generic and keep details in the app.</p>
             <p class="phase-note"><strong>{recordingLimitLabel}</strong> · Elapsed {elapsedTimeLabel} · Remaining {remainingTimeLabel}</p>
             <p class="phase-note">{mockHistoryModeLabel}</p>
           </div>

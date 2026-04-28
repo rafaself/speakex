@@ -258,7 +258,7 @@ async fn run_completed_recording_transcription(
             Ok(result)
         }
         Err(error) => {
-            notifications::notify_manual_transcription_failed(&app, &error);
+            notifications::notify_manual_transcription_failed(&app);
             Err(error)
         }
     }
