@@ -9,9 +9,7 @@ pub mod transcription;
 pub mod tray;
 
 use std::io;
-use std::{
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use history_database::HistoryDatabase;
 use history_repository::{
@@ -27,7 +25,7 @@ use recorder::{
     RecordingInputDevice, StoppedRecording,
 };
 use secret_store::SecretStoreService;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use shortcut::{RecordingShortcutStatus, ShortcutService};
 use tauri::Manager;
 use tauri::{AppHandle, State, WindowEvent};

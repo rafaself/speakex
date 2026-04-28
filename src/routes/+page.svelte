@@ -36,9 +36,7 @@
   import {
     hasCompletedRecordingAudio,
     runCompletedRecordingTranscription,
-    runMockTranscription,
     type RunCompletedRecordingTranscriptionResult,
-    type RunMockTranscriptionResult,
     type Transcript
   } from "$lib/native/transcription";
   import {
@@ -72,7 +70,7 @@
   type RecordingDevicesState = "loading" | "ready" | "error";
   type RecordingCommandState = "starting" | "stopping" | "cancelling" | null;
   type ShortcutActionState = "idle" | "loading" | "applying" | "reapplying" | "clearing" | "error";
-  type TranscriptionCommandState = "mock" | "manual" | null;
+  type TranscriptionCommandState = "manual" | null;
 
   type HistoryEntryStatus = "saved" | "attention";
 
@@ -136,7 +134,6 @@
   let selectedHistoryEntry: HistoryTranscription | null = null;
   let latestHistoryDetailRequest = 0;
   let activeTranscriptionCommand: TranscriptionCommandState = null;
-  let latestMockTranscriptionResult: RunMockTranscriptionResult | null = null;
   let latestTranscript: Transcript | null = null;
   let latestManualTranscriptionResult: RunCompletedRecordingTranscriptionResult | null = null;
   let latestManualOutcomeSettings: LatestManualOutcomeSettings | null = null;
@@ -157,10 +154,8 @@
     defaultRecordingInputOption;
   $: selectedMicrophoneLabel = selectedMicrophoneOption.label;
   $: selectedMicrophoneUnavailable = selectedMicrophoneOption.unavailable ?? false;
-  $: isRunningMockTranscription = activeTranscriptionCommand === "mock";
   $: isRunningManualTranscription = activeTranscriptionCommand === "manual";
   $: isRunningTranscription = activeTranscriptionCommand !== null;
-  $: primaryMockActionLabel = isRunningMockTranscription ? "Transcribing…" : "Run mock transcription";
   $: hasRecoverableManualFailure =
     latestManualTranscriptionFailure !== null && transcribableRecordedAudio !== null;
   $: hasUnrecoverableManualFailure =
@@ -181,9 +176,6 @@
         : availableRecordingDevices.length === 0
           ? "No microphones are available right now."
           : `${availableRecordingDevices.length} microphone${availableRecordingDevices.length === 1 ? "" : "s"} ready to use.`;
-  $: mockHistoryModeLabel = $settingsDraft.saveTranscriptionHistory
-    ? "Mock transcripts will also be saved to local history."
-    : "Mock transcripts will stay out of local history because Save transcription history is off.";
   $: settingsStatusMessage =
     settingsState === "loading"
       ? "Loading saved preferences…"
@@ -349,12 +341,7 @@
         latestManualOutcomeSettings?.saveAudioFiles ?? $settingsDraft.saveAudioFiles
       )
     : null;
-  $: latestTranscriptHistoryLabel =
-    latestManualTranscriptionResult !== null
-      ? manualHistoryLabel
-      : latestMockTranscriptionResult !== null
-        ? describeMockHistoryOutcome(latestMockTranscriptionResult.savedToHistory)
-        : null;
+  $: latestTranscriptHistoryLabel = manualHistoryLabel;
   $: manualTranscriptionStatusMessage =
     latestManualTranscriptionResult !== null
       ? manualTranscriptionWarnings.length === 0
@@ -407,10 +394,6 @@
     !isRunningTranscription;
   $: canCancelRecording =
     activeRecordingSession !== null &&
-    recordingCommandState === null &&
-    !isRunningTranscription;
-  $: canRunMockTranscription =
-    activeRecordingSession === null &&
     recordingCommandState === null &&
     !isRunningTranscription;
   $: canRunManualTranscription =
@@ -1072,7 +1055,6 @@
 
     recordingCommandState = "starting";
     latestTranscript = null;
-    latestMockTranscriptionResult = null;
     latestManualTranscriptionResult = null;
     latestManualOutcomeSettings = null;
     latestManualTranscriptionFailure = null;
@@ -1113,8 +1095,7 @@
 
       activeRecordingSession = null;
       latestTranscript = null;
-      latestMockTranscriptionResult = null;
-      latestManualTranscriptionResult = null;
+        latestManualTranscriptionResult = null;
       latestManualOutcomeSettings = null;
       latestManualTranscriptionFailure = null;
       const completedStatus = buildCompletedRecordingStatus(stoppedRecording);
@@ -1150,8 +1131,7 @@
       latestRecordingStatus = null;
       activeRecordingSession = null;
       latestTranscript = null;
-      latestMockTranscriptionResult = null;
-      latestManualTranscriptionResult = null;
+        latestManualTranscriptionResult = null;
       latestManualOutcomeSettings = null;
       latestManualTranscriptionFailure = null;
       latestCompletedRecordingMetadata = null;
@@ -1176,57 +1156,6 @@
     }
   }
 
-  async function startMockTranscription() {
-    if (!canRunMockTranscription) {
-      return;
-    }
-
-    activeTranscriptionCommand = "mock";
-    const previousRecordedAudio = get(appStatus).recordedAudio;
-    latestTranscript = null;
-    latestMockTranscriptionResult = null;
-    latestManualTranscriptionResult = null;
-    latestManualOutcomeSettings = null;
-    latestManualTranscriptionFailure = null;
-    latestCompletedRecordingMetadata = previousRecordedAudio;
-
-    appStatus.setStatus(
-      getAppStatusForPhase("transcribing", {
-        inputLabel: selectedMicrophoneLabel,
-        detail:
-          "SpeakEx is running the mock transcript command. Any recorded audio remains separate from this sample result.",
-        recordingTiming: previousRecordedAudio ? buildRecordingTimingFromRecordedAudio(previousRecordedAudio) : null,
-        recordedAudio: previousRecordedAudio
-      })
-    );
-
-    try {
-      const result = await runMockTranscription();
-
-      latestMockTranscriptionResult = result;
-      latestTranscript = result.transcript;
-      appStatus.setStatus(buildCompletedMockStatus(result, previousRecordedAudio));
-
-      if (result.savedToHistory) {
-        await loadHistoryEntries();
-      }
-    } catch (error) {
-      latestMockTranscriptionResult = null;
-      latestTranscript = null;
-      appStatus.setStatus(
-        getAppStatusForPhase("error", {
-          inputLabel: selectedMicrophoneLabel,
-          detail: error instanceof Error ? error.message : "Unable to finish the mock transcription flow.",
-          transcriptPreview:
-            "The mock transcript command did not finish. Any recorded audio remains local and separate from Gemini transcription.",
-          recordingTiming: previousRecordedAudio ? buildRecordingTimingFromRecordedAudio(previousRecordedAudio) : null,
-          recordedAudio: previousRecordedAudio
-        })
-      );
-    } finally {
-      activeTranscriptionCommand = null;
-    }
-  }
 
   async function startManualTranscription() {
     if (!canRunManualTranscription || transcribableRecordedAudio === null) {
@@ -1235,7 +1164,6 @@
 
     if (!(await hasCompletedRecordingAudio(transcribableRecordedAudio))) {
       latestTranscript = null;
-      latestMockTranscriptionResult = null;
       latestManualTranscriptionResult = null;
       latestManualOutcomeSettings = null;
       latestManualTranscriptionFailure = `The completed recording is no longer available at ${transcribableRecordedAudio.path}.`;
@@ -1259,7 +1187,6 @@
 
     activeTranscriptionCommand = "manual";
     latestTranscript = null;
-    latestMockTranscriptionResult = null;
     latestManualTranscriptionResult = null;
     latestManualOutcomeSettings = null;
     latestManualTranscriptionFailure = null;
@@ -1299,7 +1226,6 @@
         : null;
 
       latestTranscript = null;
-      latestMockTranscriptionResult = null;
       latestManualOutcomeSettings = null;
       latestManualTranscriptionFailure = manualFailureDetail;
       latestCompletedRecordingMetadata = transcribableRecordedAudio;
@@ -1326,7 +1252,6 @@
     latestRecordingStatus = null;
     activeRecordingSession = null;
     latestTranscript = null;
-    latestMockTranscriptionResult = null;
     latestManualTranscriptionResult = null;
     latestManualOutcomeSettings = null;
     latestManualTranscriptionFailure = null;
@@ -1350,10 +1275,10 @@
         detail,
         transcriptPreview:
           recordingDevicesState === "error"
-            ? "Microphone loading failed. Retry device loading or switch to the mock transcription flow while recording is unavailable."
+            ? "Microphone loading failed. Retry device loading while recording is unavailable."
             : selectedMicrophoneUnavailable
               ? "Choose an available microphone before starting a recording. Your saved selection stays in place until you update it."
-              : "Start a recording to capture a temporary audio file locally, then choose either the mock transcript or full Gemini transcription.",
+              : "Start a recording to capture a temporary audio file locally, then run Gemini when you are ready.",
         inputLabel: selectedMicrophoneLabel,
         durationLabel: "—",
         recordingTiming: null,
@@ -1375,7 +1300,7 @@
       return "The saved microphone is not currently available. Pick one of the loaded inputs before starting a recording.";
     }
 
-    return `Ready to record from ${selectedMicrophoneLabel}. Stop keeps the audio file so you can choose what to do next.`;
+    return `Ready to record from ${selectedMicrophoneLabel}. Stop keeps the audio file so you can run Gemini when you are ready.`;
   }
 
   function resolveSelectedDeviceName() {
@@ -1469,11 +1394,11 @@
         : "Recorded audio is ready.",
       detail: stoppedRecording.limitReached
         ? `Capture stopped automatically because the maximum recording duration of ${formatDuration(recordingTiming.maxDurationMs)} was reached. The audio file was kept locally, and no transcription ran automatically.`
-        : "Recording stopped successfully and kept the audio file locally. Choose the mock transcript or Gemini transcription when you are ready.",
+        : "Recording stopped successfully and kept the audio file locally. Run Gemini transcription when you are ready.",
       transcriptTitle: "Recorded audio metadata",
       transcriptPreview: stoppedRecording.limitReached
-        ? `${formatFileName(recordedAudio.path)} was captured locally after the automatic safety stop. Run a mock transcript or Gemini transcription when you are ready.`
-        : `${formatFileName(recordedAudio.path)} is available locally and ready for a mock transcript or Gemini transcription.`,
+        ? `${formatFileName(recordedAudio.path)} was captured locally after the automatic safety stop. Run Gemini transcription when you are ready.`
+        : `${formatFileName(recordedAudio.path)} is available locally and ready for Gemini transcription.`,
       inputLabel: stoppedRecording.inputDeviceName,
       durationLabel: buildDurationSummaryLabel(recordingTiming),
       recordingTiming,
@@ -1481,25 +1406,6 @@
     });
   }
 
-  function buildCompletedMockStatus(
-    result: RunMockTranscriptionResult,
-    recordedAudio: RecordedAudioMetadata | null
-  ) {
-    const historyDetail = describeMockHistoryOutcome(result.savedToHistory);
-
-    return getAppStatusForPhase("completed", {
-      headline: "Mock transcript ready.",
-      detail: `${historyDetail} This sample result is separate from Gemini transcription and does not use the recorded audio file.`,
-      transcriptTitle: result.savedToHistory
-        ? "Mock transcript saved locally"
-        : "Mock transcript kept in memory only",
-      transcriptPreview: result.transcript.text,
-      inputLabel: selectedMicrophoneLabel,
-      durationLabel: formatDuration(result.transcript.durationMs),
-      recordingTiming: recordedAudio ? buildRecordingTimingFromRecordedAudio(recordedAudio) : null,
-      recordedAudio
-    });
-  }
 
   function buildCompletedManualStatus(
     result: RunCompletedRecordingTranscriptionResult,
@@ -1569,11 +1475,6 @@
     );
   }
 
-  function describeMockHistoryOutcome(savedToHistory: boolean): string {
-    return savedToHistory
-      ? "Saved to local history."
-      : "Local history was skipped because Save transcription history is turned off.";
-  }
 
   function describeManualHistoryOutcome(
     result: RunCompletedRecordingTranscriptionResult,
@@ -1863,7 +1764,7 @@
   <title>SpeakEx — Local-first Transcription</title>
   <meta
     name="description"
-    content="SpeakEx desktop app with local recording, mock and manual transcription flows, retry guidance, privacy-safe hidden-window notifications, history, and settings."
+    content="SpeakEx desktop app with local recording, Gemini transcription, retry guidance, privacy-safe hidden-window notifications, history, and settings."
   />
 </svelte:head>
 
@@ -1873,8 +1774,8 @@
       <p class="eyebrow">Local-first desktop transcription</p>
       <h1>SpeakEx</h1>
       <p class="brand-copy">
-        Local-first transcription for the desktop. Record audio, run a mock transcript for testing,
-        or transcribe a completed recording with Gemini when you are ready.
+        Local-first transcription for the desktop. Record audio and transcribe the completed
+        recording with Gemini when you are ready.
       </p>
     </div>
 
@@ -1927,9 +1828,9 @@
       </div>
         <p class="workspace-copy">
           {#if $activeSection === "recording"}
-          Record audio, then choose a mock transcript or manual Gemini transcription. Retry only
-          appears while the recorded audio file is still available, and hidden-window notifications
-          stay privacy-safe.
+          Record audio, then transcribe the completed recording with Gemini. Retry only appears
+          while the recorded audio file is still available, and hidden-window notifications stay
+          privacy-safe.
         {:else if $activeSection === "history"}
           Saved transcripts stay on this device, and the selected detail panel shows the full text
           plus the clipboard and audio outcomes saved with each entry.
@@ -1955,7 +1856,6 @@
             <p class="phase-note">After a manual failure, Retry transcription only stays available while the recorded audio file still exists locally.</p>
             <p class="phase-note">Desktop notifications only cover manual transcription outcomes while SpeakEx is hidden. Failure notifications stay generic and keep details in the app.</p>
             <p class="phase-note"><strong>{recordingLimitLabel}</strong> · Elapsed {elapsedTimeLabel} · Remaining {remainingTimeLabel}</p>
-            <p class="phase-note">{mockHistoryModeLabel}</p>
           </div>
 
           <div class="hero-actions">
@@ -1982,14 +1882,6 @@
               disabled={!canCancelRecording}
             >
               {recordingCommandState === "cancelling" ? "Cancelling…" : "Cancel and discard"}
-            </button>
-            <button
-              type="button"
-              class="secondary-button"
-              on:click={startMockTranscription}
-              disabled={!canRunMockTranscription}
-            >
-              {primaryMockActionLabel}
             </button>
             {#if showManualTranscriptionAction}
               <button
@@ -2245,10 +2137,6 @@
             <div>
               <dt>Cancel command</dt>
               <dd><code>cancel_recording</code></dd>
-            </div>
-            <div>
-              <dt>Mock command</dt>
-              <dd><code>run_mock_transcription</code></dd>
             </div>
             <div>
               <dt>Manual flow command</dt>
