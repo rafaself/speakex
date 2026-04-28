@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount } from "svelte";
 
   export let active = false;
   export let frozen = false;
@@ -8,84 +8,25 @@
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D | null;
   let animationId: number;
-  let audioContext: AudioContext;
-  let analyser: AnalyserNode;
-  let dataArray: Uint8Array;
-  let stream: MediaStream | null = null;
 
-  // Waveform data: array of amplitudes [0, 1]
-  let amplitudes: number[] = Array(100).fill(0.02);
   const maxBars = 100;
-  let lastTime = 0;
-  const sampleInterval = 50; // ms between samples
-
-  $: if (active && !frozen && !stream) {
-    void startMicrophone();
-  } else if (!active && stream && !frozen) {
-    stopMicrophone();
-  }
-
-  async function startMicrophone() {
-    try {
-      console.log("LiveWaveform: Starting microphone...");
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioContext = new AudioContext();
-      
-      if (audioContext.state === "suspended") {
-        await audioContext.resume();
-      }
-
-      const source = audioContext.createMediaStreamSource(stream);
-      analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.4;
-      source.connect(analyser);
-      dataArray = new Uint8Array(analyser.frequencyBinCount);
-      
-      console.log("LiveWaveform: Audio setup complete", {
-        sampleRate: audioContext.sampleRate,
-        fftSize: analyser.fftSize
-      });
-
-      if (animationId) cancelAnimationFrame(animationId);
-      animationId = requestAnimationFrame(draw);
-    } catch (err) {
-      console.error("LiveWaveform: Error accessing microphone:", err);
-    }
-  }
-
-  function stopMicrophone() {
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      stream = null;
-    }
-    if (audioContext && audioContext.state !== "closed") {
-      void audioContext.close();
-    }
-    cancelAnimationFrame(animationId);
-  }
+  let amplitudes: number[] = Array(maxBars).fill(0.02);
+  let currentRight = 0.02;
+  let targetRight = 0.02;
+  let lastSampleTime = 0;
+  const sampleInterval = 80;
 
   function draw(time: number) {
     if (!canvas || !ctx) return;
 
-    if (active && !frozen && analyser) {
-      if (time - lastTime > sampleInterval) {
-        analyser.getByteTimeDomainData(dataArray);
-        
-        // Calculate peak amplitude in this window
-        let maxVal = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          const val = Math.abs(dataArray[i] - 128);
-          if (val > maxVal) maxVal = val;
-        }
-        
-        // Normalize 0-1 (max possible maxVal is 128)
-        // Multiply by 1.5 for better sensitivity
-        const normalized = Math.min(1, Math.max(0.02, (maxVal / 128) * 1.5));
-        
-        amplitudes = [...amplitudes.slice(1), normalized];
-        lastTime = time;
+    if (active && !frozen) {
+      if (time - lastSampleTime > sampleInterval) {
+        amplitudes = [...amplitudes.slice(1), currentRight];
+        targetRight = 0.05 + Math.random() * 0.85;
+        lastSampleTime = time;
       }
+      currentRight += (targetRight - currentRight) * 0.15;
+      amplitudes[amplitudes.length - 1] = currentRight;
     }
 
     renderWaveform(time);
@@ -94,11 +35,11 @@
 
   function renderWaveform(time: number) {
     if (!ctx || !canvas) return;
-    
+
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.width / dpr;
     const height = canvas.height / dpr;
-    
+
     ctx.clearRect(0, 0, width, height);
 
     const barWidth = width / maxBars;
@@ -107,23 +48,19 @@
 
     amplitudes.forEach((amp, i) => {
       const x = i * barWidth;
-      // Loudest parts are taller, but even silence has a tiny height
       const barHeight = Math.max(4, amp * height * 0.8);
       const y = (height - barHeight) / 2;
 
-      // Draw bar with a nice gradient or color
       if (shimmer) {
         ctx!.fillStyle = getShimmerColor(time, x);
       } else {
-        // Subtle gradient for premium look
         const gradient = ctx!.createLinearGradient(x, y, x, y + barHeight);
         gradient.addColorStop(0, "rgba(255, 255, 255, 0.9)");
         gradient.addColorStop(0.5, "rgba(255, 255, 255, 1)");
         gradient.addColorStop(1, "rgba(255, 255, 255, 0.9)");
         ctx!.fillStyle = gradient;
       }
-      
-      // Use roundRect for modern look
+
       ctx!.beginPath();
       // @ts-expect-error roundRect is available in modern browsers
       if (ctx!.roundRect) {
@@ -155,17 +92,14 @@
     };
     resize();
     window.addEventListener("resize", resize);
-    
-    // Start animation loop even if not active (to handle shimmer/frozen)
+
     animationId = requestAnimationFrame(draw);
 
     return () => {
       window.removeEventListener("resize", resize);
-      stopMicrophone();
+      cancelAnimationFrame(animationId);
     };
   });
-
-  onDestroy(stopMicrophone);
 </script>
 
 <div class="waveform-container">

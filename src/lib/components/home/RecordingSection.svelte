@@ -93,20 +93,6 @@
                     <path d="M18 6L6 18M6 6l12 12" />
                   </svg>
                 </button>
-                <button
-                  class="icon-btn confirm-btn"
-                  title="Send transcription"
-                  aria-label="Send transcription"
-                  type="button"
-                  on:click={() => {
-                    // Logic to "send" could be implemented here
-                    onClearLatestTranscript();
-                  }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-                  </svg>
-                </button>
               </div>
             {:else if isRecordingActive}
               <div class="recording-actions" in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}>
