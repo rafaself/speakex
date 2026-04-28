@@ -3,7 +3,10 @@
   import type { HistoryEntryViewModel } from "$lib/features/history/types";
 
   export let historyState: "loading" | "ready" | "error" = "loading";
+  export let historyError = "";
   export let historyEntries: HistoryEntryViewModel[] = [];
+  export let historyDetailState: "idle" | "loading" | "ready" | "error" = "idle";
+  export let historyDetailError = "";
   export let isClearingHistory = false;
   export let historyBusyEntryId: string | null = null;
   export let selectedHistoryEntryId: string | null = null;
@@ -24,6 +27,8 @@
 
     {#if historyState === "loading"}
       <p class="muted-copy">Loading history...</p>
+    {:else if historyState === "error"}
+      <p class="error-copy">{historyError}</p>
     {:else if historyEntries.length === 0}
       <p class="muted-copy">No saved transcripts yet.</p>
     {:else}
@@ -36,6 +41,15 @@
                   <div class="history-entry-title">{entry.title}</div>
                   <div class="history-entry-meta">
                     {entry.createdAtLabel} · {entry.durationLabel} · {entry.providerLabel}
+                  </div>
+                  <p class="history-entry-excerpt">{entry.excerpt}</p>
+                  <div class="history-tags">
+                    <span class="history-tag">{entry.languageLabel}</span>
+                    <span class="history-tag">{entry.clipboardLabel}</span>
+                    <span class="history-tag">{entry.audioLabel}</span>
+                    <span class:attention-tag={entry.status === "attention"} class="history-tag">
+                      {entry.statusLabel}
+                    </span>
                   </div>
                 </div>
               </button>
@@ -52,8 +66,27 @@
               </button>
             </div>
 
-            {#if selectedHistoryEntryId === entry.id && selectedHistoryEntry}
+            {#if selectedHistoryEntryId === entry.id && historyDetailState === "loading"}
               <div class="history-detail">
+                <p class="muted-copy">Loading transcript details...</p>
+              </div>
+            {:else if selectedHistoryEntryId === entry.id && historyDetailState === "error"}
+              <div class="history-detail">
+                <p class="error-copy">{historyDetailError}</p>
+              </div>
+            {:else if selectedHistoryEntryId === entry.id && selectedHistoryEntry}
+              <div class="history-detail">
+                <div class="history-detail-meta">
+                  <span>{selectedHistoryEntry.language ?? "Auto / unspecified"}</span>
+                  <span>{selectedHistoryEntry.copiedToClipboard ? "Copied to clipboard" : "Not copied to clipboard"}</span>
+                  <span>{selectedHistoryEntry.audioDeleted ? "Deleted after transcription" : selectedHistoryEntry.audioPath ? "Retained locally" : "No retained audio"}</span>
+                </div>
+                {#if selectedHistoryEntry.error}
+                  <p class="error-copy">{selectedHistoryEntry.error}</p>
+                {/if}
+                {#if selectedHistoryEntry.audioPath}
+                  <p class="detail-path">{selectedHistoryEntry.audioPath}</p>
+                {/if}
                 <pre>{selectedHistoryEntry.text}</pre>
               </div>
             {/if}
@@ -103,6 +136,11 @@
     color: #9b9b9b;
   }
 
+  .error-copy {
+    color: #ff8a80;
+    margin: 0;
+  }
+
   .history-list {
     display: flex;
     flex-direction: column;
@@ -146,6 +184,31 @@
     margin-top: 0.25rem;
   }
 
+  .history-entry-excerpt {
+    margin: 0.5rem 0 0;
+    color: #d0d0d7;
+    line-height: 1.45;
+  }
+
+  .history-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+  }
+
+  .history-tag {
+    font-size: 0.75rem;
+    color: #c9c9cf;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+  }
+
+  .history-tag.attention-tag {
+    color: #ffcc80;
+  }
+
   .icon-btn {
     width: 40px;
     display: flex;
@@ -170,6 +233,22 @@
     padding: 1rem;
     background: rgba(255, 255, 255, 0.01);
     border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .history-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    font-size: 0.8rem;
+    color: #9b9b9b;
+    margin-bottom: 0.75rem;
+  }
+
+  .detail-path {
+    margin: 0 0 0.75rem;
+    font-size: 0.8rem;
+    color: #9b9b9b;
+    word-break: break-all;
   }
 
   .history-detail pre {

@@ -1,51 +1,51 @@
 <script lang="ts">
   import type { Transcript } from "$lib/native/transcription";
+  import type { RecordedAudioMetadata } from "$lib/types/app-shell";
 
   export let phaseLabel: string;
+  export let headline = "";
+  export let detail = "";
+  export let transcriptTitle = "";
+  export let transcriptPreview = "";
+  export let inputLabel = "";
+  export let durationLabel = "—";
   export let isRecordingActive = false;
   export let elapsedTimeLabel = "—";
   export let latestTranscript: Transcript | null = null;
+  export let recordedAudio: RecordedAudioMetadata | null = null;
   export let pingResponse = "";
   export let canStartRecording = false;
   export let canStopRecording = false;
+  export let canCancelRecording = false;
   export let canRunManualTranscription = false;
+  export let manualTranscriptionActionLabel = "Run transcription";
   export let geminiApiKeyPresence = false;
   export let onBeginRecording: () => void;
   export let onFinishRecording: () => void;
+  export let onDiscardRecording: () => void;
   export let onStartManualTranscription: () => void;
   export let onOpenSettings: () => void;
   export let onClearLatestTranscript: () => void;
+
+  function formatFileSize(sizeBytes: number): string {
+    if (sizeBytes < 1024) {
+      return `${sizeBytes} B`;
+    }
+
+    if (sizeBytes < 1024 * 1024) {
+      return `${(sizeBytes / 1024).toFixed(1)} KB`;
+    }
+
+    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function formatAudioPath(path: string): string {
+    return path.split(/[/\\\\]/u).pop() ?? path;
+  }
 </script>
 
 <div class="main-content">
   <h1>Where should we begin?</h1>
-
-  <div class="input-container">
-    <div class="chat-input-wrapper">
-      <button class="icon-btn" title="Add attachment" type="button" on:click={onBeginRecording} disabled={!canStartRecording}>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      </button>
-      <input type="text" class="chat-input" placeholder="Ask anything" bind:value={pingResponse} />
-      <div class="input-actions">
-        <button class="icon-btn" title="Voice" type="button" on:click={onFinishRecording} disabled={!canStopRecording}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-            <line x1="12" y1="19" x2="12" y2="23" />
-            <line x1="8" y1="23" x2="16" y2="23" />
-          </svg>
-        </button>
-        <button class="voice-btn" type="button" on:click={onStartManualTranscription} disabled={!canRunManualTranscription}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 1v22M5 8v8M19 8v8M9 11v2M15 11v2" />
-          </svg>
-          Voice
-        </button>
-      </div>
-    </div>
-  </div>
 
   <div class="phase-summary">
     <p class="phase-note">
@@ -55,8 +55,70 @@
       {/if}
     </p>
 
-    {#if latestTranscript}
-      <div class="status-card">
+    <div class="status-card">
+      <p class="card-eyebrow">Workflow</p>
+      <h2>{headline}</h2>
+      <p class="card-copy">{detail}</p>
+      <dl class="summary-grid">
+        <div>
+          <dt>Input</dt>
+          <dd>{inputLabel}</dd>
+        </div>
+        <div>
+          <dt>Duration</dt>
+          <dd>{durationLabel}</dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="input-container">
+    <div class="chat-input-wrapper">
+      <button
+        class="icon-btn"
+        title="Start recording"
+        aria-label="Start recording"
+        type="button"
+        on:click={onBeginRecording}
+        disabled={!canStartRecording}
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+      <input type="text" class="chat-input" placeholder="Ask anything" bind:value={pingResponse} />
+      <div class="input-actions">
+        <button
+          class="icon-btn"
+          title="Stop recording"
+          aria-label="Stop recording"
+          type="button"
+          on:click={onFinishRecording}
+          disabled={!canStopRecording}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" y1="19" x2="12" y2="23" />
+            <line x1="8" y1="23" x2="16" y2="23" />
+          </svg>
+        </button>
+        <button class="secondary-pill" type="button" on:click={onDiscardRecording} disabled={!canCancelRecording}>
+          Cancel
+        </button>
+        <button class="voice-btn" type="button" on:click={onStartManualTranscription} disabled={!canRunManualTranscription}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1v22M5 8v8M19 8v8M9 11v2M15 11v2" />
+          </svg>
+          {manualTranscriptionActionLabel}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-summary">
+    <div class="status-card">
+      {#if latestTranscript}
         <button
           class="icon-btn status-card-close"
           type="button"
@@ -67,7 +129,49 @@
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
         </button>
-        <strong>Latest Transcript:</strong> {latestTranscript.text}
+      {/if}
+      <p class="card-eyebrow">{transcriptTitle}</p>
+      {#if latestTranscript}
+        <pre class="transcript-preview">{latestTranscript.text}</pre>
+        <p class="card-copy compact-copy">
+          {latestTranscript.provider}{#if latestTranscript.model} · {latestTranscript.model}{/if}
+          {#if latestTranscript.language} · {latestTranscript.language}{/if}
+        </p>
+      {:else}
+        <p class="card-copy">{transcriptPreview}</p>
+      {/if}
+    </div>
+
+    {#if recordedAudio}
+      <div class="status-card">
+        <p class="card-eyebrow">Recorded audio</p>
+        <dl class="summary-grid">
+          <div>
+            <dt>File</dt>
+            <dd>{formatAudioPath(recordedAudio.path)}</dd>
+          </div>
+          <div>
+            <dt>Size</dt>
+            <dd>{formatFileSize(recordedAudio.fileSizeBytes)}</dd>
+          </div>
+          <div>
+            <dt>Sample rate</dt>
+            <dd>{recordedAudio.sampleRateHz} Hz</dd>
+          </div>
+          <div>
+            <dt>Channels</dt>
+            <dd>{recordedAudio.channels}</dd>
+          </div>
+          <div>
+            <dt>MIME type</dt>
+            <dd>{recordedAudio.mimeType}</dd>
+          </div>
+          <div>
+            <dt>Limit reached</dt>
+            <dd>{recordedAudio.limitReached ? "Yes" : "No"}</dd>
+          </div>
+        </dl>
+        <p class="path-copy">{recordedAudio.path}</p>
       </div>
     {/if}
 
@@ -95,7 +199,7 @@
   .main-content h1 {
     font-size: 2.25rem;
     font-weight: 600;
-    margin-bottom: 2.5rem;
+    margin-bottom: 1.5rem;
     color: #fff;
   }
 
@@ -135,6 +239,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-wrap: wrap;
   }
 
   .icon-btn {
@@ -154,9 +259,27 @@
   }
 
   .icon-btn:disabled,
-  .voice-btn:disabled {
+  .voice-btn:disabled,
+  .secondary-pill:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+
+  .secondary-pill {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 20px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+    transition: background 0.2s;
+  }
+
+  .secondary-pill:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
   }
 
   .voice-btn {
@@ -212,10 +335,66 @@
     box-sizing: border-box;
   }
 
+  .status-card h2 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 600;
+  }
+
   .status-card-close {
     position: absolute;
     top: 0.5rem;
     right: 0.5rem;
+  }
+
+  .card-eyebrow {
+    margin: 0 0 0.4rem;
+    color: #9b9b9b;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .card-copy {
+    margin: 0.5rem 0 0;
+    color: #c9c9cf;
+    line-height: 1.5;
+  }
+
+  .compact-copy {
+    font-size: 0.85rem;
+  }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1rem;
+    margin: 1rem 0 0;
+  }
+
+  .summary-grid dt {
+    font-size: 0.75rem;
+    color: #9b9b9b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .summary-grid dd {
+    margin: 0.2rem 0 0;
+  }
+
+  .transcript-preview {
+    margin: 0.5rem 0 0;
+    white-space: pre-wrap;
+    font-family: inherit;
+    line-height: 1.5;
+  }
+
+  .path-copy {
+    margin: 1rem 0 0;
+    word-break: break-all;
+    color: #9b9b9b;
+    font-size: 0.8rem;
   }
 
   .warning-note {
@@ -226,6 +405,12 @@
 
   .link-button {
     text-decoration: underline;
+  }
+
+  @media (max-width: 640px) {
+    .summary-grid {
+      grid-template-columns: 1fr;
+    }
   }
 
 </style>

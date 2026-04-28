@@ -192,6 +192,14 @@
     !isGeminiApiKeyBusy &&
     geminiApiKeyPresenceState !== "error" &&
     geminiApiKeyPresence;
+  $: canRemoveGeminiApiKey = !isGeminiApiKeyBusy && geminiApiKeyPresence;
+  $: canReapplyRecordingShortcut = !isRecordingShortcutBusy && savedRecordingShortcut !== null;
+  $: manualTranscriptionActionLabel =
+    $appStatus.phase === "error" && transcribableRecordedAudio !== null
+      ? "Retry transcription"
+      : latestTranscript !== null
+        ? "Transcribe again"
+        : "Run transcription";
 
   async function runPing() {
     try {
@@ -353,6 +361,18 @@
 
   async function submitGeminiApiKey() {
     await settingsController.submitGeminiApiKey();
+  }
+
+  async function removeGeminiApiKeySetting() {
+    await settingsController.removeGeminiApiKey();
+  }
+
+  async function reapplyRecordingShortcutSetting() {
+    await settingsController.reapplySavedRecordingShortcut();
+  }
+
+  async function clearRecordingShortcutSetting() {
+    await settingsController.clearRecordingShortcutSetting();
   }
 
   function resetTranscriptionRun(options: { clearCompletedRecordingMetadata?: boolean } = {}) {
@@ -643,15 +663,25 @@
       <RecordingSection
         bind:pingResponse
         phaseLabel={$appStatus.phaseLabel}
+        headline={$appStatus.headline}
+        detail={$appStatus.detail}
+        transcriptTitle={$appStatus.transcriptTitle}
+        transcriptPreview={$appStatus.transcriptPreview}
+        inputLabel={$appStatus.inputLabel}
+        durationLabel={$appStatus.durationLabel}
         isRecordingActive={activeRecordingSession !== null}
         elapsedTimeLabel={elapsedTimeLabel}
         latestTranscript={latestTranscript}
+        recordedAudio={displayedRecordedAudio}
         canStartRecording={canStartRecording}
         canStopRecording={canStopRecording}
+        canCancelRecording={canCancelRecording}
         canRunManualTranscription={canRunManualTranscription}
+        manualTranscriptionActionLabel={manualTranscriptionActionLabel}
         geminiApiKeyPresence={geminiApiKeyPresence}
         onBeginRecording={beginRecording}
         onFinishRecording={finishRecording}
+        onDiscardRecording={discardRecording}
         onStartManualTranscription={startManualTranscription}
         onOpenSettings={() => showSection("settings")}
         onClearLatestTranscript={clearLatestTranscriptPreview}
@@ -659,7 +689,10 @@
     {:else if $activeSection === "history"}
       <HistorySection
         historyState={historyState}
+        historyError={historyError}
         historyEntries={historyEntries}
+        historyDetailState={historyDetailState}
+        historyDetailError={historyDetailError}
         isClearingHistory={isClearingHistory}
         historyBusyEntryId={historyBusyEntryId}
         selectedHistoryEntryId={selectedHistoryEntryId}
@@ -681,14 +714,20 @@
         recordingDevicesStatusMessage={recordingDevicesStatusMessage}
         isGeminiApiKeyBusy={isGeminiApiKeyBusy}
         geminiApiKeyPrimaryActionLabel={geminiApiKeyPrimaryActionLabel}
+        canRemoveGeminiApiKey={canRemoveGeminiApiKey}
         recordingShortcutStatusMessage={recordingShortcutStatusMessage}
         isRecordingShortcutBusy={isRecordingShortcutBusy}
         recordingShortcutPrimaryActionLabel={recordingShortcutPrimaryActionLabel}
+        canReapplyRecordingShortcut={canReapplyRecordingShortcut}
+        canClearRecordingShortcut={canClearRecordingShortcut}
         onSubmitGeminiApiKey={submitGeminiApiKey}
+        onRemoveGeminiApiKey={removeGeminiApiKeySetting}
         onUpdateMicrophone={updateMicrophone}
         onUpdateLanguage={updateLanguage}
         onToggleSetting={toggleSetting}
         onSubmitRecordingShortcut={submitRecordingShortcut}
+        onReapplyRecordingShortcut={reapplyRecordingShortcutSetting}
+        onClearRecordingShortcut={clearRecordingShortcutSetting}
       />
     {/if}
   </section>

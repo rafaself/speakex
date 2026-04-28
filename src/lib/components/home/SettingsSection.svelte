@@ -13,14 +13,20 @@
   export let recordingDevicesStatusMessage = "";
   export let isGeminiApiKeyBusy = false;
   export let geminiApiKeyPrimaryActionLabel = "Save key";
+  export let canRemoveGeminiApiKey = false;
   export let recordingShortcutStatusMessage = "";
   export let isRecordingShortcutBusy = false;
   export let recordingShortcutPrimaryActionLabel = "Save and apply";
+  export let canReapplyRecordingShortcut = false;
+  export let canClearRecordingShortcut = false;
   export let onSubmitGeminiApiKey: () => void;
+  export let onRemoveGeminiApiKey: () => void;
   export let onUpdateMicrophone: (event: Event) => void;
   export let onUpdateLanguage: (event: Event) => void;
   export let onToggleSetting: (key: DraftToggleKey) => void;
   export let onSubmitRecordingShortcut: () => void;
+  export let onReapplyRecordingShortcut: () => void;
+  export let onClearRecordingShortcut: () => void;
 </script>
 
 <div class="main-content settings-layout">
@@ -45,6 +51,11 @@
             disabled={isGeminiApiKeyBusy || geminiApiKeyDraft.trim().length === 0}
           >
             {geminiApiKeyPrimaryActionLabel}
+          </button>
+        </div>
+        <div class="action-row">
+          <button class="secondary-pill" type="button" on:click={onRemoveGeminiApiKey} disabled={!canRemoveGeminiApiKey}>
+            Remove saved key
           </button>
         </div>
         <p class:status-ok={geminiApiKeyPresence} class="status-copy">{geminiApiKeyStatusMessage}</p>
@@ -105,6 +116,23 @@
             <span class:thumb-on={settingsDraft.saveTranscriptionHistory} class="toggle-thumb"></span>
           </button>
         </div>
+
+        <div class="preference-row">
+          <div>
+            <div class="preference-title">Save audio files</div>
+            <div class="preference-description">Keep recorded audio locally after transcription</div>
+          </div>
+          <button
+            class:toggle-on={settingsDraft.saveAudioFiles}
+            class="toggle"
+            type="button"
+            aria-pressed={settingsDraft.saveAudioFiles}
+            aria-label="Toggle save audio files"
+            on:click={() => onToggleSetting("saveAudioFiles")}
+          >
+            <span class:thumb-on={settingsDraft.saveAudioFiles} class="toggle-thumb"></span>
+          </button>
+        </div>
       </section>
 
       <section class="settings-section">
@@ -123,6 +151,24 @@
             disabled={isRecordingShortcutBusy || recordingShortcutDraft.trim().length === 0}
           >
             {recordingShortcutPrimaryActionLabel}
+          </button>
+        </div>
+        <div class="action-row">
+          <button
+            class="secondary-pill"
+            type="button"
+            on:click={onReapplyRecordingShortcut}
+            disabled={!canReapplyRecordingShortcut}
+          >
+            Re-apply saved shortcut
+          </button>
+          <button
+            class="secondary-pill"
+            type="button"
+            on:click={onClearRecordingShortcut}
+            disabled={!canClearRecordingShortcut}
+          >
+            Clear shortcut
           </button>
         </div>
         <p class="status-copy muted-copy">{recordingShortcutStatusMessage}</p>
@@ -234,6 +280,31 @@
 
   .muted-copy {
     color: #9b9b9b;
+  }
+
+  .action-row {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 0.75rem;
+  }
+
+  .secondary-pill {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    border-radius: 8px;
+    padding: 0.55rem 0.8rem;
+    font-weight: 600;
+    transition: background 0.2s;
+  }
+
+  .secondary-pill:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .secondary-pill:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .settings-select {

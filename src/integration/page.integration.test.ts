@@ -122,6 +122,22 @@ function createHistoryEntry(id: string, text: string) {
   };
 }
 
+function createStoppedRecording(sessionId: string) {
+  return {
+    sessionId,
+    audioInput: {
+      path: `/tmp/${sessionId}.wav`,
+      mimeType: "audio/wav",
+      durationMs: 42_000
+    },
+    inputDeviceName: "USB Mic",
+    sampleRateHz: 48_000,
+    channels: 2,
+    fileSizeBytes: 256_000,
+    limitReached: false
+  };
+}
+
 describe("+page integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -130,6 +146,7 @@ describe("+page integration", () => {
     pingMock.mockResolvedValue("pong");
     settingsMocks.loadAppSettings.mockResolvedValue(createDefaultAppSettings());
     settingsMocks.saveAppSettings.mockImplementation(async (settings) => settings);
+    secretStoreMocks.clearGeminiApiKey.mockResolvedValue(true);
     secretStoreMocks.hasGeminiApiKey.mockResolvedValue(false);
     secretStoreMocks.saveGeminiApiKey.mockResolvedValue(undefined);
     shortcutMocks.getRecordingShortcutStatus.mockResolvedValue({
@@ -147,6 +164,15 @@ describe("+page integration", () => {
       detail: null
     });
     recordingMocks.listRecordingInputDevices.mockResolvedValue([{ name: "USB Mic", isDefault: true }]);
+    recordingMocks.startRecording.mockResolvedValue({
+      id: "session-1",
+      inputDeviceName: "USB Mic"
+    });
+    recordingMocks.stopRecording.mockResolvedValue(createStoppedRecording("session-1"));
+    recordingMocks.cancelRecording.mockResolvedValue({
+      sessionId: "session-1",
+      deletedAudioPath: "/tmp/session-1.wav"
+    });
     recordingMocks.getRecordingStatus.mockResolvedValue({
       phase: "idle",
       activeSessionId: null,
@@ -196,6 +222,7 @@ describe("+page integration", () => {
     await screen.findByRole("heading", { name: "Where should we begin?" });
 
     expect(screen.getByRole("button", { name: "SpeakEx" })).toBeTruthy();
+    expect(screen.getByText("Ready to capture a local recording.")).toBeTruthy();
     expect(screen.getByText(/Gemini API key is missing/i)).toBeTruthy();
 
     await user.click(screen.getAllByRole("button", { name: "Settings" })[0]);
@@ -213,6 +240,8 @@ describe("+page integration", () => {
     await user.click(screen.getByRole("button", { name: "History" }));
 
     expect(await screen.findByRole("heading", { name: "History" })).toBeTruthy();
+    expect(screen.getAllByText("Copied to clipboard").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Audio retained").length).toBeGreaterThan(0);
 
     const historyEntryButton = (await screen.findAllByRole("button", {
       name: /First transcript line/i
@@ -227,32 +256,100 @@ describe("+page integration", () => {
     expect(historyMocks.clearHistory).toHaveBeenCalledTimes(1);
   });
 
-  it("submits the Gemini key and recording shortcut from settings", async () => {
+  it("starts and cancels a recording from the recording screen", async () => {
     const user = userEvent.setup();
+
+    render(Page);
+
+    await screen.findByRole("heading", { name: "Where should we begin?" });
+    await user.click(screen.getByRole("button", { name: "Start recording" }));
+
+    await waitFor(() => {
+      expect(recordingMocks.startRecording).toHaveBeenCalledWith(null);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(recordingMocks.cancelRecording).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getByText(/was cancelled and the temporary file was deleted/i)).toBeTruthy();
+  });
+
+  it("manages settings actions for Gemini, audio retention, and shortcuts", async () => {
+    const user = userEvent.setup();
+    const persistedSettings = {
+      ...createDefaultAppSettings(),
+      shortcut: "CommandOrControl+Alt+A"
+    };
+
+    settingsMocks.loadAppSettings.mockResolvedValue(persistedSettings);
+    secretStoreMocks.hasGeminiApiKey.mockResolvedValue(true);
+    shortcutMocks.getRecordingShortcutStatus.mockResolvedValue({
+      state: "active",
+      source: "saved",
+      requestedShortcut: "CommandOrControl+Alt+A",
+      activeShortcut: "CommandOrControl+Alt+A",
+      detail: null
+    });
 
     render(Page);
 
     await screen.findByRole("heading", { name: "Where should we begin?" });
     await user.click(screen.getAllByRole("button", { name: "Settings" })[0]);
 
-    const apiKeyInput = await screen.findByPlaceholderText("Enter API Key");
+    const apiKeyInput = await screen.findByPlaceholderText("••••••••••••");
     await user.type(apiKeyInput, "api-key-123");
-    await user.click(screen.getByRole("button", { name: "Save key" }));
+    await user.click(screen.getByRole("button", { name: "Replace saved key" }));
 
     await waitFor(() => {
       expect(secretStoreMocks.saveGeminiApiKey).toHaveBeenCalledWith("api-key-123");
     });
 
     const shortcutInput = screen.getByPlaceholderText("e.g. CommandOrControl+Alt+A");
+    await user.clear(shortcutInput);
     await user.type(shortcutInput, "CommandOrControl+Alt+A");
     await user.click(screen.getByRole("button", { name: "Save and apply" }));
 
     await waitFor(() => {
       expect(settingsMocks.saveAppSettings).toHaveBeenCalledWith({
-        ...createDefaultAppSettings(),
+        ...persistedSettings,
         shortcut: "CommandOrControl+Alt+A"
       });
     });
     expect(shortcutMocks.applyRecordingShortcut).toHaveBeenCalledWith("CommandOrControl+Alt+A");
+
+    await user.click(screen.getByRole("button", { name: "Toggle save audio files" }));
+
+    await waitFor(() => {
+      expect(settingsMocks.saveAppSettings).toHaveBeenCalledWith({
+        ...persistedSettings,
+        saveAudioFiles: true
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: "Re-apply saved shortcut" }));
+
+    await waitFor(() => {
+      expect(shortcutMocks.applyRecordingShortcut).toHaveBeenCalledWith("CommandOrControl+Alt+A");
+    });
+
+    await user.click(screen.getByRole("button", { name: "Clear shortcut" }));
+
+    await waitFor(() => {
+      expect(settingsMocks.saveAppSettings).toHaveBeenCalledWith({
+        ...persistedSettings,
+        saveAudioFiles: true,
+        shortcut: null
+      });
+    });
+    expect(shortcutMocks.applyRecordingShortcut).toHaveBeenCalledWith(null);
+
+    await user.click(screen.getByRole("button", { name: "Remove saved key" }));
+
+    await waitFor(() => {
+      expect(secretStoreMocks.clearGeminiApiKey).toHaveBeenCalledTimes(1);
+    });
   });
 });
