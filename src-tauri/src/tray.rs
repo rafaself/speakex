@@ -537,10 +537,12 @@ mod tests {
         let devices = vec![
             RecordingInputDevice {
                 name: "Built-in Mic".to_string(),
+                label: "Built-in Mic".to_string(),
                 is_default: true,
             },
             RecordingInputDevice {
                 name: "Podcast Mic".to_string(),
+                label: "Podcast Mic".to_string(),
                 is_default: false,
             },
         ];

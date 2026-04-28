@@ -42,9 +42,9 @@ function createControllerHarness() {
     settingsDraft: createDefaultAppSettings(),
     settingsState: "idle" as "idle" | "loading" | "saving" | "error",
     settingsError: "",
-    availableRecordingDevices: [{ name: "USB Mic", isDefault: true }],
+    availableRecordingDevices: [{ name: "USB Mic", label: "USB Mic", isDefault: true }],
     recordingInputOptionsArgs: null as {
-      devices: Array<{ name: string; isDefault: boolean }>;
+      devices: Array<{ name: string; label: string; isDefault: boolean }>;
       selectedMicrophone: string;
     } | null,
     geminiApiKeyDraft: "",
@@ -163,7 +163,7 @@ describe("createSettingsController", () => {
       defaultLanguage: "pt-BR"
     });
     expect(state.recordingInputOptionsArgs).toEqual({
-      devices: [{ name: "USB Mic", isDefault: true }],
+      devices: [{ name: "USB Mic", label: "USB Mic", isDefault: true }],
       selectedMicrophone: "USB Mic"
     });
     expect(state.idleStatusSyncs).toBe(1);

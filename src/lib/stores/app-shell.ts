@@ -16,6 +16,7 @@ import type {
 
 interface RecordingInputDeviceLike {
   name: string;
+  label: string;
   isDefault: boolean;
 }
 
@@ -126,16 +127,21 @@ export function createRecordingInputOptions(
   devices: RecordingInputDeviceLike[],
   selectedMicrophone: string
 ): RecordingInputOption[] {
-  const defaultDevice = devices.find((device) => device.isDefault);
-  const options: RecordingInputOption[] = [
-    {
-      ...defaultRecordingInputOption,
-      label: defaultDevice
-        ? `System default microphone — ${defaultDevice.name}`
-        : defaultRecordingInputOption.label
-    }
-  ];
-  const knownValues = new Set<string>([defaultRecordingInputOption.value]);
+  if (devices.length === 0) {
+    return selectedMicrophone === "default"
+      ? [defaultRecordingInputOption]
+      : [
+          {
+            value: selectedMicrophone,
+            label: "Saved microphone (unavailable)",
+            isDefault: false,
+            unavailable: true
+          }
+        ];
+  }
+
+  const options: RecordingInputOption[] = [];
+  const knownValues = new Set<string>();
 
   for (const device of devices) {
     if (knownValues.has(device.name)) {
@@ -144,7 +150,7 @@ export function createRecordingInputOptions(
 
     options.push({
       value: device.name,
-      label: device.isDefault ? `${device.name} (default device)` : device.name,
+      label: device.label,
       isDefault: device.isDefault
     });
     knownValues.add(device.name);
@@ -153,7 +159,7 @@ export function createRecordingInputOptions(
   if (selectedMicrophone !== "default" && !knownValues.has(selectedMicrophone)) {
     options.push({
       value: selectedMicrophone,
-      label: `${selectedMicrophone} (unavailable)`,
+      label: "Saved microphone (unavailable)",
       isDefault: false,
       unavailable: true
     });

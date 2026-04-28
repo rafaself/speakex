@@ -163,7 +163,9 @@ describe("+page integration", () => {
       activeShortcut: "CommandOrControl+Alt+A",
       detail: null
     });
-    recordingMocks.listRecordingInputDevices.mockResolvedValue([{ name: "USB Mic", isDefault: true }]);
+    recordingMocks.listRecordingInputDevices.mockResolvedValue([
+      { name: "USB Mic", label: "USB Mic", isDefault: true }
+    ]);
     recordingMocks.startRecording.mockResolvedValue({
       id: "session-1",
       inputDeviceName: "USB Mic"

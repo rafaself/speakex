@@ -94,8 +94,13 @@
   let activeRecordingSession: ActiveRecordingSession | null = null;
   let latestRecordingStatus: RecordingStatus | null = null;
 
+  $: effectiveSelectedMicrophoneValue =
+    $settingsDraft.selectedMicrophone === "default"
+      ? ($recordingInputOptions.find((option) => option.isDefault && !(option.unavailable ?? false))?.value ??
+          defaultRecordingInputOption.value)
+      : $settingsDraft.selectedMicrophone;
   $: selectedMicrophoneOption =
-    $recordingInputOptions.find((option) => option.value === $settingsDraft.selectedMicrophone) ??
+    $recordingInputOptions.find((option) => option.value === effectiveSelectedMicrophoneValue) ??
     defaultRecordingInputOption;
   $: selectedMicrophoneLabel = selectedMicrophoneOption.label;
   $: selectedMicrophoneUnavailable = selectedMicrophoneOption.unavailable ?? false;
@@ -704,6 +709,7 @@
         bind:geminiApiKeyDraft
         bind:recordingShortcutDraft
         settingsDraft={$settingsDraft}
+        selectedMicrophoneValue={effectiveSelectedMicrophoneValue}
         recordingInputOptions={$recordingInputOptions}
         languageOptions={languageOptions}
         geminiApiKeyPresence={geminiApiKeyPresence}

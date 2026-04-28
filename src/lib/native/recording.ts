@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 export interface RecordingInputDevice {
   name: string;
+  label: string;
   isDefault: boolean;
 }
 

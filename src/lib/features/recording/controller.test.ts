@@ -36,10 +36,13 @@ import { createRecordingController } from "./controller";
 function createControllerHarness() {
   const state = {
     settingsDraft: createDefaultAppSettings(),
-    availableRecordingDevices: [] as Array<{ name: string; isDefault: boolean }>,
+    availableRecordingDevices: [] as Array<{ name: string; label: string; isDefault: boolean }>,
     recordingDevicesState: "loading" as "loading" | "ready" | "error",
     recordingDevicesError: "",
-    recordingInputOptionsArgs: null as { devices: Array<{ name: string; isDefault: boolean }>; selected: string } | null,
+    recordingInputOptionsArgs: null as {
+      devices: Array<{ name: string; label: string; isDefault: boolean }>;
+      selected: string;
+    } | null,
     activeRecordingSession: null as { id: string; inputDeviceName: string } | null,
     appStatus: null as ReturnType<typeof import("$lib/stores/app-shell").getAppStatusForPhase> | null,
     idleStatusMessage: null as string | null,
@@ -153,16 +156,20 @@ describe("createRecordingController", () => {
   });
 
   it("loads recording devices and refreshes idle status when ready", async () => {
-    recordingMocks.listRecordingInputDevices.mockResolvedValue([{ name: "USB Mic", isDefault: true }]);
+    recordingMocks.listRecordingInputDevices.mockResolvedValue([
+      { name: "USB Mic", label: "USB Mic", isDefault: true }
+    ]);
 
     const { controller, state } = createControllerHarness();
 
     await controller.loadRecordingDevices();
 
-    expect(state.availableRecordingDevices).toEqual([{ name: "USB Mic", isDefault: true }]);
+    expect(state.availableRecordingDevices).toEqual([
+      { name: "USB Mic", label: "USB Mic", isDefault: true }
+    ]);
     expect(state.recordingDevicesState).toBe("ready");
     expect(state.recordingInputOptionsArgs).toEqual({
-      devices: [{ name: "USB Mic", isDefault: true }],
+      devices: [{ name: "USB Mic", label: "USB Mic", isDefault: true }],
       selected: "default"
     });
     expect(state.idleStatusMessage).toBe("");

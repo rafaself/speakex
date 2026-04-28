@@ -8,6 +8,8 @@ use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "linux")]
+use std::process::Command;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     mpsc::{self, Receiver, SyncSender, TryRecvError},
@@ -21,6 +23,8 @@ const WAV_BITS_PER_SAMPLE: u16 = 16;
 const WAV_BYTES_PER_SAMPLE: u16 = WAV_BITS_PER_SAMPLE / 8;
 const MAX_RECORDING_DURATION: Duration = Duration::from_secs(15 * 60);
 const MAX_RECORDING_DURATION_MS: u64 = 15 * 60 * 1000;
+#[cfg(target_os = "linux")]
+const SYSTEM_SOURCE_PREFIX: &str = "source::";
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -49,6 +53,7 @@ pub struct RecorderSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct RecordingInputDevice {
     pub name: String,
+    pub label: String,
     pub is_default: bool,
 }
 
@@ -497,6 +502,13 @@ pub enum RecorderError {
     InputDeviceEnumerationFailed {
         message: String,
     },
+    SystemAudioQueryFailed {
+        message: String,
+    },
+    SystemAudioSelectionFailed {
+        source_name: String,
+        message: String,
+    },
     InputDeviceNameUnavailable {
         message: String,
     },
@@ -561,6 +573,16 @@ impl fmt::Display for RecorderError {
                     "failed to enumerate audio input devices: {message}"
                 )
             }
+            Self::SystemAudioQueryFailed { message } => {
+                write!(formatter, "failed to query system audio sources: {message}")
+            }
+            Self::SystemAudioSelectionFailed {
+                source_name,
+                message,
+            } => write!(
+                formatter,
+                "failed to select system audio source '{source_name}': {message}"
+            ),
             Self::InputDeviceNameUnavailable { message } => {
                 write!(
                     formatter,
@@ -846,10 +868,56 @@ impl CpalRecordingBackend {
             }
         }
     }
+
+    #[cfg(target_os = "linux")]
+    fn build_capture_for_system_source(
+        &self,
+        mut request: StartRecordingRequest,
+        selected_source_name: &str,
+    ) -> Result<StartedRecordingCapture, RecorderError> {
+        let selected_source = list_linux_audio_sources()?
+            .into_iter()
+            .find(|source| source.name == selected_source_name)
+            .ok_or_else(|| RecorderError::InputDeviceNotFound {
+                name: selected_source_name.to_string(),
+            })?;
+        let mut source_override = ScopedDefaultSourceOverride::apply(selected_source_name)?;
+
+        request.selected_device_name = None;
+
+        match self.build_capture(request) {
+            Ok(mut capture) => {
+                capture.input_device_name = selected_source.description;
+                capture.runtime = Box::new(SystemSourceRecordingRuntime {
+                    inner: Some(capture.runtime),
+                    source_override,
+                });
+                Ok(capture)
+            }
+            Err(error) => {
+                let _ = source_override.restore();
+                Err(error)
+            }
+        }
+    }
 }
 
 impl RecordingBackend for CpalRecordingBackend {
     fn list_input_devices(&self) -> Result<Vec<RecordingInputDevice>, RecorderError> {
+        #[cfg(target_os = "linux")]
+        if let Ok(sources) = list_linux_audio_sources() {
+            if !sources.is_empty() {
+                return Ok(sources
+                    .into_iter()
+                    .map(|source| RecordingInputDevice {
+                        name: format!("{SYSTEM_SOURCE_PREFIX}{}", source.name),
+                        label: source.description,
+                        is_default: source.is_default,
+                    })
+                    .collect());
+            }
+        }
+
         let host = self.host();
         let default_name = host
             .default_input_device()
@@ -864,6 +932,7 @@ impl RecordingBackend for CpalRecordingBackend {
                 let name = read_device_name(&device)?;
                 Ok(RecordingInputDevice {
                     is_default: default_name.as_deref() == Some(name.as_str()),
+                    label: name.clone(),
                     name,
                 })
             })
@@ -876,6 +945,16 @@ impl RecordingBackend for CpalRecordingBackend {
         &self,
         request: StartRecordingRequest,
     ) -> Result<StartedRecordingCapture, RecorderError> {
+        #[cfg(target_os = "linux")]
+        if let Some(selected_source_name) = request
+            .selected_device_name
+            .as_deref()
+            .and_then(|value| value.strip_prefix(SYSTEM_SOURCE_PREFIX))
+            .map(str::to_string)
+        {
+            return self.build_capture_for_system_source(request, &selected_source_name);
+        }
+
         self.build_capture(request)
     }
 }
@@ -1013,6 +1092,218 @@ impl RecordingRuntime for CpalRecordingRuntime {
             })
         })
     }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LinuxAudioSource {
+    name: String,
+    description: String,
+    is_default: bool,
+}
+
+#[cfg(target_os = "linux")]
+struct ScopedDefaultSourceOverride {
+    previous_source_name: Option<String>,
+}
+
+#[cfg(target_os = "linux")]
+impl ScopedDefaultSourceOverride {
+    fn apply(selected_source_name: &str) -> Result<Self, RecorderError> {
+        let current_default_source_name = pactl_output(&["get-default-source"])?.trim().to_string();
+
+        if current_default_source_name == selected_source_name {
+            return Ok(Self {
+                previous_source_name: None,
+            });
+        }
+
+        set_default_source(selected_source_name)?;
+
+        Ok(Self {
+            previous_source_name: Some(current_default_source_name),
+        })
+    }
+
+    fn restore(&mut self) -> Result<(), RecorderError> {
+        if let Some(previous_source_name) = self.previous_source_name.take() {
+            set_default_source(&previous_source_name)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct SystemSourceRecordingRuntime {
+    inner: Option<Box<dyn RecordingRuntime>>,
+    source_override: ScopedDefaultSourceOverride,
+}
+
+#[cfg(target_os = "linux")]
+impl SystemSourceRecordingRuntime {
+    fn restore_and_resolve<T>(
+        &mut self,
+        result: Result<T, RecorderError>,
+    ) -> Result<T, RecorderError> {
+        match (result, self.source_override.restore()) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl RecordingRuntime for SystemSourceRecordingRuntime {
+    fn finish(mut self: Box<Self>) -> Result<FinishedRecordingArtifact, RecorderError> {
+        let result = self
+            .inner
+            .take()
+            .expect("system source runtime should hold an inner runtime")
+            .finish();
+
+        self.restore_and_resolve(result)
+    }
+
+    fn cancel(mut self: Box<Self>) -> Result<CancelledRecordingArtifact, RecorderError> {
+        let result = self
+            .inner
+            .take()
+            .expect("system source runtime should hold an inner runtime")
+            .cancel();
+
+        self.restore_and_resolve(result)
+    }
+
+    fn poll_completion(&mut self) -> Result<Option<RuntimeCompletion>, RecorderError> {
+        match self
+            .inner
+            .as_mut()
+            .expect("system source runtime should hold an inner runtime")
+            .poll_completion()
+        {
+            Ok(Some(result)) => self.restore_and_resolve(Ok(Some(result))),
+            Ok(None) => Ok(None),
+            Err(error) => self.restore_and_resolve(Err(error)),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn list_linux_audio_sources() -> Result<Vec<LinuxAudioSource>, RecorderError> {
+    let default_source_name = pactl_output(&["get-default-source"])?;
+    let mut sources = pactl_output(&["list", "sources"])?
+        .split("Source #")
+        .skip(1)
+        .filter_map(|block| parse_linux_audio_source(block, default_source_name.trim()))
+        .collect::<Vec<_>>();
+
+    sources.sort_by(|left, right| {
+        right
+            .is_default
+            .cmp(&left.is_default)
+            .then_with(|| {
+                linux_source_priority(&left.name).cmp(&linux_source_priority(&right.name))
+            })
+            .then_with(|| left.description.cmp(&right.description))
+    });
+
+    Ok(sources)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_linux_audio_source(block: &str, default_source_name: &str) -> Option<LinuxAudioSource> {
+    let mut name: Option<String> = None;
+    let mut description: Option<String> = None;
+
+    for line in block.lines() {
+        let trimmed = line.trim();
+
+        if let Some(value) = trimmed.strip_prefix("Name: ") {
+            name = Some(value.trim().to_string());
+        } else if let Some(value) = trimmed.strip_prefix("Description: ") {
+            description = Some(value.trim().to_string());
+        }
+    }
+
+    let name = name?;
+    if name.contains(".monitor") {
+        return None;
+    }
+
+    Some(LinuxAudioSource {
+        is_default: name == default_source_name,
+        description: description.unwrap_or_else(|| name.clone()),
+        name,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn linux_source_priority(source_name: &str) -> u8 {
+    if source_name.starts_with("alsa_input.") {
+        return 0;
+    }
+
+    if source_name.starts_with("bluez_input.") {
+        return 1;
+    }
+
+    2
+}
+
+#[cfg(target_os = "linux")]
+fn set_default_source(source_name: &str) -> Result<(), RecorderError> {
+    let output = Command::new("pactl")
+        .args(["set-default-source", source_name])
+        .output()
+        .map_err(|error| RecorderError::SystemAudioSelectionFailed {
+            source_name: source_name.to_string(),
+            message: error.to_string(),
+        })?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(RecorderError::SystemAudioSelectionFailed {
+        source_name: source_name.to_string(),
+        message: command_output_message(&output.stdout, &output.stderr),
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn pactl_output(args: &[&str]) -> Result<String, RecorderError> {
+    let output = Command::new("pactl").args(args).output().map_err(|error| {
+        RecorderError::SystemAudioQueryFailed {
+            message: error.to_string(),
+        }
+    })?;
+
+    if !output.status.success() {
+        return Err(RecorderError::SystemAudioQueryFailed {
+            message: command_output_message(&output.stdout, &output.stderr),
+        });
+    }
+
+    String::from_utf8(output.stdout).map_err(|error| RecorderError::SystemAudioQueryFailed {
+        message: error.to_string(),
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn command_output_message(stdout: &[u8], stderr: &[u8]) -> String {
+    let stderr_output = String::from_utf8_lossy(stderr).trim().to_string();
+    if !stderr_output.is_empty() {
+        return stderr_output;
+    }
+
+    let stdout_output = String::from_utf8_lossy(stdout).trim().to_string();
+    if !stdout_output.is_empty() {
+        return stdout_output;
+    }
+
+    "command exited unsuccessfully".to_string()
 }
 
 struct CaptureSharedState {
@@ -1592,6 +1883,7 @@ mod tests {
             test_name,
             FakeRecordingBackend::with_devices(vec![RecordingInputDevice {
                 name: "Default Test Microphone".to_string(),
+                label: "Default Test Microphone".to_string(),
                 is_default: true,
             }]),
             MAX_RECORDING_DURATION,
@@ -1625,6 +1917,7 @@ mod tests {
             devices,
             vec![RecordingInputDevice {
                 name: "Default Test Microphone".to_string(),
+                label: "Default Test Microphone".to_string(),
                 is_default: true,
             }]
         );
@@ -1721,6 +2014,7 @@ mod tests {
             limit_reached_on_poll: true,
             ..FakeRecordingBackend::with_devices(vec![RecordingInputDevice {
                 name: "Default Test Microphone".to_string(),
+                label: "Default Test Microphone".to_string(),
                 is_default: true,
             }])
         };
@@ -1755,6 +2049,7 @@ mod tests {
             limit_reached_on_poll: true,
             ..FakeRecordingBackend::with_devices(vec![RecordingInputDevice {
                 name: "Default Test Microphone".to_string(),
+                label: "Default Test Microphone".to_string(),
                 is_default: true,
             }])
         };

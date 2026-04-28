@@ -6,6 +6,7 @@
   export let geminiApiKeyDraft = "";
   export let recordingShortcutDraft = "";
   export let settingsDraft: SettingsDraft;
+  export let selectedMicrophoneValue = "default";
   export let recordingInputOptions: RecordingInputOption[] = [];
   export let languageOptions: Array<{ value: string; label: string }> = [];
   export let geminiApiKeyPresence = false;
@@ -95,7 +96,7 @@
         <h3>Microphone</h3>
         <MenuList
           label="Microphone"
-          value={settingsDraft.selectedMicrophone}
+          value={selectedMicrophoneValue}
           options={microphoneMenuOptions}
           onSelect={onUpdateMicrophone}
         />
