@@ -231,6 +231,7 @@ describe("+page integration", () => {
 
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
     expect(screen.getByText(/Preferences are stored locally/i)).toBeTruthy();
+    expect(await screen.findByText("Auto-detect (English (US))")).toBeTruthy();
   });
 
   it("loads history, shows transcript details, and clears the list", async () => {

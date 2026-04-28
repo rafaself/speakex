@@ -103,6 +103,7 @@
     latestTranscript?.language ??
     latestManualTranscriptionResult?.transcript.language ??
     selectedHistoryEntry?.language ??
+    resolveDetectedLanguageCodeFromHistory(historyEntries[0]?.languageLabel) ??
     null;
   $: detectedLanguageLabel = resolveLanguageOptionLabel(detectedLanguageCode);
   $: settingsLanguageOptions = languageOptions.map((option) =>
@@ -486,6 +487,18 @@
     }
 
     return languageOptions.find((option) => option.value === languageCode)?.label ?? languageCode;
+  }
+
+  function resolveDetectedLanguageCodeFromHistory(languageValue: string | null | undefined) {
+    if (!languageValue || languageValue === "Auto / unspecified") {
+      return null;
+    }
+
+    const matchedOption = languageOptions.find(
+      (option) => option.value === languageValue || option.label === languageValue
+    );
+
+    return matchedOption?.value ?? languageValue;
   }
 
   const recordingController = createRecordingController({

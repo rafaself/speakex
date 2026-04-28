@@ -9,7 +9,7 @@ use std::fs::{self, File};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     mpsc::{self, Receiver, SyncSender, TryRecvError},
@@ -1254,13 +1254,12 @@ fn linux_source_priority(source_name: &str) -> u8 {
 
 #[cfg(target_os = "linux")]
 fn set_default_source(source_name: &str) -> Result<(), RecorderError> {
-    let output = Command::new("pactl")
-        .args(["set-default-source", source_name])
-        .output()
-        .map_err(|error| RecorderError::SystemAudioSelectionFailed {
+    let output = run_pactl(&["set-default-source", source_name]).map_err(|message| {
+        RecorderError::SystemAudioSelectionFailed {
             source_name: source_name.to_string(),
-            message: error.to_string(),
-        })?;
+            message,
+        }
+    })?;
 
     if output.status.success() {
         return Ok(());
@@ -1274,11 +1273,8 @@ fn set_default_source(source_name: &str) -> Result<(), RecorderError> {
 
 #[cfg(target_os = "linux")]
 fn pactl_output(args: &[&str]) -> Result<String, RecorderError> {
-    let output = Command::new("pactl").args(args).output().map_err(|error| {
-        RecorderError::SystemAudioQueryFailed {
-            message: error.to_string(),
-        }
-    })?;
+    let output =
+        run_pactl(args).map_err(|message| RecorderError::SystemAudioQueryFailed { message })?;
 
     if !output.status.success() {
         return Err(RecorderError::SystemAudioQueryFailed {
@@ -1289,6 +1285,37 @@ fn pactl_output(args: &[&str]) -> Result<String, RecorderError> {
     String::from_utf8(output.stdout).map_err(|error| RecorderError::SystemAudioQueryFailed {
         message: error.to_string(),
     })
+}
+
+#[cfg(target_os = "linux")]
+fn run_pactl(args: &[&str]) -> Result<Output, String> {
+    let direct_attempt = Command::new("pactl").args(args).output();
+
+    match direct_attempt {
+        Ok(output) => return Ok(output),
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.to_string()),
+        Err(_) => {}
+    }
+
+    let host_path_attempt = Command::new("/run/host/usr/bin/pactl").args(args).output();
+
+    match host_path_attempt {
+        Ok(output) => return Ok(output),
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.to_string()),
+        Err(_) => {}
+    }
+
+    Command::new("flatpak-spawn")
+        .args(["--host", "pactl"])
+        .args(args)
+        .output()
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                "unable to locate pactl on the current runtime or host".to_string()
+            } else {
+                error.to_string()
+            }
+        })
 }
 
 #[cfg(target_os = "linux")]
