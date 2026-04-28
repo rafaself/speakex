@@ -299,6 +299,8 @@ describe("+page integration", () => {
     await screen.findByRole("heading", { name: "Where should we begin?" });
     await user.click(screen.getAllByRole("button", { name: "Settings" })[0]);
 
+    expect(screen.getByLabelText("Gemini API key saved")).toBeTruthy();
+
     const apiKeyInput = await screen.findByPlaceholderText("••••••••••••");
     await user.type(apiKeyInput, "api-key-123");
     await user.click(screen.getByRole("button", { name: "Replace saved key" }));

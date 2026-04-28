@@ -44,6 +44,13 @@
             bind:value={geminiApiKeyDraft}
             placeholder={geminiApiKeyPresence ? "••••••••••••" : "Enter API Key"}
           />
+          {#if geminiApiKeyPresence}
+            <span class="field-indicator" role="img" aria-label="Gemini API key saved">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+            </span>
+          {/if}
         </div>
         <div class="action-bar">
           <div class="action-group">
@@ -252,7 +259,7 @@
 
   .compact-field {
     border-radius: 12px;
-    padding: 0.25rem 0.25rem 0.25rem 1rem;
+    padding: 0.25rem 0.5rem 0.25rem 1rem;
   }
 
   .chat-input {
@@ -268,6 +275,34 @@
 
   .chat-input::placeholder {
     color: #9b9b9b;
+  }
+
+  .chat-input[type="password"] {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: none;
+  }
+
+  .chat-input[type="password"]::-webkit-credentials-auto-fill-button,
+  .chat-input[type="password"]::-webkit-caps-lock-indicator,
+  .chat-input[type="password"]::-webkit-strong-password-auto-fill-button,
+  .chat-input[type="password"]::-webkit-textfield-decoration-container,
+  .chat-input[type="password"]::-ms-reveal,
+  .chat-input[type="password"]::-ms-clear {
+    display: none;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .field-indicator {
+    width: 1.5rem;
+    height: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #72e17b;
+    flex-shrink: 0;
+    margin-right: 0.25rem;
   }
 
   .primary-pill {
