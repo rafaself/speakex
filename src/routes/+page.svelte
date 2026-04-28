@@ -747,9 +747,19 @@
   :global(button) {
     font: inherit;
     border: none;
-    cursor: pointer;
     background: transparent;
     color: inherit;
+  }
+
+  :global(button:not(:disabled)),
+  :global(select:not(:disabled)),
+  :global(summary) {
+    cursor: pointer;
+  }
+
+  :global(button:disabled),
+  :global(select:disabled) {
+    cursor: not-allowed;
   }
 
   .app-shell {
