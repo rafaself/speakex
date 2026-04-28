@@ -55,9 +55,9 @@
 
   const fallbackRecordingLimitMs = 15 * 60 * 1000;
   const hiddenManualNotificationCompletedMessage =
-    "If SpeakEx was hidden when this manual transcription finished, you may also have seen a desktop notification.";
+    "If SpeakEx was hidden when this transcription finished, you may also have seen a desktop notification.";
   const hiddenManualNotificationFailedMessage =
-    "If SpeakEx was hidden when this manual transcription failed, you may also have seen a generic desktop notification. The detailed error stays in SpeakEx.";
+    "If SpeakEx was hidden when this transcription failed, you may also have seen a generic desktop notification. The detailed error stays in SpeakEx.";
 
   let pingResponse = "";
   let settingsState: SettingsState = "loading";
@@ -190,14 +190,17 @@
     activeRecordingSession === null &&
     !isRunningTranscription &&
     !selectedMicrophoneUnavailable;
-  $: canStopRecording =
+  $: canDiscardRecording =
     activeRecordingSession !== null &&
     recordingCommandState === null &&
     !isRunningTranscription;
-  $: canCancelRecording =
+  $: canConfirmRecordingAndTranscribe =
     activeRecordingSession !== null &&
     recordingCommandState === null &&
-    !isRunningTranscription;
+    !isRunningTranscription &&
+    !isGeminiApiKeyBusy &&
+    geminiApiKeyPresenceState !== "error" &&
+    geminiApiKeyPresence;
   $: canRunManualTranscription =
     transcribableRecordedAudio !== null &&
     activeRecordingSession === null &&
@@ -206,6 +209,7 @@
     !isGeminiApiKeyBusy &&
     geminiApiKeyPresenceState !== "error" &&
     geminiApiKeyPresence;
+  $: hasTranscribableRecordedAudio = transcribableRecordedAudio !== null;
   $: canRemoveGeminiApiKey = !isGeminiApiKeyBusy && geminiApiKeyPresence;
   $: canReapplyRecordingShortcut = !isRecordingShortcutBusy && savedRecordingShortcut !== null;
   $: manualTranscriptionActionLabel =
@@ -531,8 +535,8 @@
       recordingCommandState = state;
     },
     getCanStartRecording: () => canStartRecording,
-    getCanStopRecording: () => canStopRecording,
-    getCanCancelRecording: () => canCancelRecording,
+    getCanDiscardRecording: () => canDiscardRecording,
+    getCanConfirmRecordingAndTranscribe: () => canConfirmRecordingAndTranscribe,
     getCanRunManualTranscription: () => canRunManualTranscription,
     resolveSelectedDeviceName,
     resolveRecordingLimitMs,
@@ -579,12 +583,12 @@
     await recordingController.beginRecording();
   }
 
-  async function finishRecording() {
-    await recordingController.finishRecording();
-  }
-
   async function discardRecording() {
     await recordingController.discardRecording();
+  }
+
+  async function confirmRecordingAndTranscribe() {
+    await recordingController.confirmRecordingAndTranscribe();
   }
 
   async function startManualTranscription() {
@@ -695,25 +699,22 @@
       <RecordingSection
         bind:pingResponse
         phaseLabel={$appStatus.phaseLabel}
-        headline={$appStatus.headline}
-        detail={$appStatus.detail}
         transcriptTitle={$appStatus.transcriptTitle}
         transcriptPreview={$appStatus.transcriptPreview}
-        inputLabel={$appStatus.inputLabel}
-        durationLabel={$appStatus.durationLabel}
         isRecordingActive={activeRecordingSession !== null}
         elapsedTimeLabel={elapsedTimeLabel}
         latestTranscript={latestTranscript}
         recordedAudio={displayedRecordedAudio}
         canStartRecording={canStartRecording}
-        canStopRecording={canStopRecording}
-        canCancelRecording={canCancelRecording}
+        canDiscardRecording={canDiscardRecording}
+        canConfirmRecordingAndTranscribe={canConfirmRecordingAndTranscribe}
+        hasTranscribableRecordedAudio={hasTranscribableRecordedAudio}
         canRunManualTranscription={canRunManualTranscription}
         manualTranscriptionActionLabel={manualTranscriptionActionLabel}
         geminiApiKeyPresence={geminiApiKeyPresence}
         onBeginRecording={beginRecording}
-        onFinishRecording={finishRecording}
         onDiscardRecording={discardRecording}
+        onConfirmRecordingAndTranscribe={confirmRecordingAndTranscribe}
         onStartManualTranscription={startManualTranscription}
         onOpenSettings={() => showSection("settings")}
         onClearLatestTranscript={clearLatestTranscriptPreview}

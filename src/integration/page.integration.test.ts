@@ -221,10 +221,13 @@ describe("+page integration", () => {
 
     render(Page);
 
-    await screen.findByRole("heading", { name: "Where should we begin?" });
+    await screen.findByRole("heading", { name: "What should we write?" });
 
-    expect(screen.getByText("Ready to capture a local recording.")).toBeTruthy();
+    expect(screen.queryByText("Ready to capture a local recording.")).toBeNull();
+    expect(screen.queryByText("Status:")).toBeNull();
+    expect(screen.queryByText("No recorded audio yet.")).toBeNull();
     expect(screen.getByText(/Gemini API key is missing/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start recording" })).toBeTruthy();
 
     await user.click(screen.getAllByRole("button", { name: "Settings" })[0]);
 
@@ -238,7 +241,7 @@ describe("+page integration", () => {
 
     render(Page);
 
-    await screen.findByRole("heading", { name: "Where should we begin?" });
+    await screen.findByRole("heading", { name: "What should we write?" });
     await user.click(screen.getByRole("button", { name: "History" }));
 
     expect(await screen.findByRole("heading", { name: "History" })).toBeTruthy();
@@ -258,25 +261,26 @@ describe("+page integration", () => {
     expect(historyMocks.clearHistory).toHaveBeenCalledTimes(1);
   });
 
-  it("starts and cancels a recording from the recording screen", async () => {
+  it("starts and discards a recording from the recording screen", async () => {
     const user = userEvent.setup();
 
     render(Page);
 
-    await screen.findByRole("heading", { name: "Where should we begin?" });
+    await screen.findByRole("heading", { name: "What should we write?" });
     await user.click(screen.getByRole("button", { name: "Start recording" }));
 
     await waitFor(() => {
       expect(recordingMocks.startRecording).toHaveBeenCalledWith(null);
     });
 
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Discard recording" }));
 
     await waitFor(() => {
       expect(recordingMocks.cancelRecording).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.getByText(/was cancelled and the temporary file was deleted/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start recording" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Discard recording" })).toBeNull();
   });
 
   it("shows the detected language inside the auto-detect option label", async () => {
@@ -285,20 +289,18 @@ describe("+page integration", () => {
 
     render(Page);
 
-    await screen.findByRole("heading", { name: "Where should we begin?" });
+    await screen.findByRole("heading", { name: "What should we write?" });
     await user.click(screen.getByRole("button", { name: "Start recording" }));
 
     await waitFor(() => {
       expect(recordingMocks.startRecording).toHaveBeenCalledWith(null);
     });
 
-    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+    await user.click(screen.getByRole("button", { name: "Confirm recording and transcribe" }));
 
     await waitFor(() => {
       expect(recordingMocks.stopRecording).toHaveBeenCalledTimes(1);
     });
-
-    await user.click(screen.getByRole("button", { name: "Run transcription" }));
 
     expect(await screen.findByText("Transcript ready")).toBeTruthy();
 
@@ -326,7 +328,7 @@ describe("+page integration", () => {
 
     render(Page);
 
-    await screen.findByRole("heading", { name: "Where should we begin?" });
+    await screen.findByRole("heading", { name: "What should we write?" });
     await user.click(screen.getAllByRole("button", { name: "Settings" })[0]);
 
     expect(screen.getByLabelText("Gemini API key saved")).toBeTruthy();

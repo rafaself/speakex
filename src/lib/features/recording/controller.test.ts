@@ -48,6 +48,9 @@ function createControllerHarness() {
     idleStatusMessage: null as string | null,
     recordingCommandState: null as "starting" | "stopping" | "cancelling" | null,
     latestRecordingStatus: null as object | null,
+    canStartRecording: true,
+    canDiscardRecording: false,
+    canConfirmRecordingAndTranscribe: false,
     resetTranscriptionRunCalls: [] as Array<{ clearCompletedRecordingMetadata?: boolean } | undefined>,
     latestCompletedRecordingMetadata: null as RecordedAudioMetadata | null,
     latestTranscript: null as Transcript | null,
@@ -102,9 +105,9 @@ function createControllerHarness() {
     setRecordingCommandState: (value) => {
       state.recordingCommandState = value;
     },
-    getCanStartRecording: () => true,
-    getCanStopRecording: () => false,
-    getCanCancelRecording: () => false,
+    getCanStartRecording: () => state.canStartRecording,
+    getCanDiscardRecording: () => state.canDiscardRecording,
+    getCanConfirmRecordingAndTranscribe: () => state.canConfirmRecordingAndTranscribe,
     getCanRunManualTranscription: () => state.transcribableRecordedAudio !== null,
     resolveSelectedDeviceName: () => null,
     resolveRecordingLimitMs: () => 900_000,
@@ -196,8 +199,8 @@ describe("createRecordingController", () => {
       getRecordingCommandState: () => null,
       setRecordingCommandState: () => undefined,
       getCanStartRecording: () => false,
-      getCanStopRecording: () => false,
-      getCanCancelRecording: () => false,
+      getCanDiscardRecording: () => false,
+      getCanConfirmRecordingAndTranscribe: () => false,
       getCanRunManualTranscription: () => false,
       resolveSelectedDeviceName: () => null,
       resolveRecordingLimitMs: () => 900_000,
@@ -228,6 +231,71 @@ describe("createRecordingController", () => {
     expect(state.appStatus).toMatchObject({
       phase: "error",
       detail: "The saved microphone is unavailable. Choose one of the loaded inputs before starting a recording."
+    });
+  });
+
+  it("confirms an active recording and transcribes it immediately", async () => {
+    recordingMocks.stopRecording.mockResolvedValue({
+      sessionId: "session-1",
+      audioInput: {
+        path: "/tmp/session-1.wav",
+        mimeType: "audio/wav",
+        durationMs: 42_000
+      },
+      inputDeviceName: "USB Mic",
+      sampleRateHz: 48_000,
+      channels: 2,
+      fileSizeBytes: 128_000,
+      limitReached: false
+    });
+    transcriptionMocks.hasCompletedRecordingAudio.mockResolvedValue(true);
+    transcriptionMocks.runCompletedRecordingTranscription.mockResolvedValue({
+      transcript: {
+        text: "Transcript ready",
+        provider: "Gemini",
+        model: "1.5-pro",
+        language: "en-US",
+        durationMs: 42_000
+      },
+      historyId: "history-1",
+      historySaved: true,
+      historyError: null,
+      copiedToClipboard: true,
+      clipboardError: null,
+      audioDeleted: false,
+      audioDeleteError: null,
+      retainedAudioPath: "/tmp/retained.wav"
+    });
+
+    const { controller, state } = createControllerHarness();
+    state.activeRecordingSession = {
+      id: "session-1",
+      inputDeviceName: "USB Mic"
+    };
+    state.canDiscardRecording = true;
+    state.canConfirmRecordingAndTranscribe = true;
+
+    await controller.confirmRecordingAndTranscribe();
+
+    expect(recordingMocks.stopRecording).toHaveBeenCalledTimes(1);
+    expect(transcriptionMocks.runCompletedRecordingTranscription).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      path: "/tmp/session-1.wav",
+      mimeType: "audio/wav",
+      durationMs: 42_000,
+      inputDeviceName: "USB Mic",
+      sampleRateHz: 48_000,
+      channels: 2,
+      fileSizeBytes: 128_000,
+      limitReached: false,
+      maxDurationMs: 900_000
+    });
+    expect(state.activeRecordingSession).toBeNull();
+    expect(state.latestTranscript?.text).toBe("Transcript ready");
+    expect(state.latestCompletedRecordingMetadata?.path).toBe("/tmp/session-1.wav");
+    expect(state.appStatus).toMatchObject({
+      phase: "completed",
+      headline: "Transcript ready."
     });
   });
 

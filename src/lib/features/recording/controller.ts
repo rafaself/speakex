@@ -54,8 +54,8 @@ interface RecordingControllerContext {
   getRecordingCommandState: () => "starting" | "stopping" | "cancelling" | null;
   setRecordingCommandState: (state: "starting" | "stopping" | "cancelling" | null) => void;
   getCanStartRecording: () => boolean;
-  getCanStopRecording: () => boolean;
-  getCanCancelRecording: () => boolean;
+  getCanDiscardRecording: () => boolean;
+  getCanConfirmRecordingAndTranscribe: () => boolean;
   getCanRunManualTranscription: () => boolean;
   resolveSelectedDeviceName: () => string | null;
   resolveRecordingLimitMs: () => number;
@@ -314,44 +314,8 @@ export function createRecordingController(context: RecordingControllerContext) {
     }
   }
 
-  async function finishRecording() {
-    if (!context.getCanStopRecording()) {
-      return;
-    }
-
-    context.setRecordingCommandState("stopping");
-    stopRecordingStatusPolling();
-
-    try {
-      const stoppedRecording = await stopRecording();
-      context.setActiveRecordingSession(null);
-      context.resetTranscriptionRun();
-      const completedStatus = buildCompletedRecordingStatus({
-        stoppedRecording,
-        maxDurationMs: context.resolveRecordingLimitMs(),
-        formatDuration: context.formatDuration,
-        formatFileName: context.formatFileName
-      });
-      context.setLatestCompletedRecordingMetadata(completedStatus.recordedAudio);
-      context.setAppStatus(completedStatus);
-    } catch (error) {
-      context.setActiveRecordingSession(null);
-      context.setAppStatus(
-        getAppStatusForPhase("error", {
-          detail: error instanceof Error ? error.message : "Unable to stop the recorder.",
-          transcriptPreview:
-            "The native stop_recording command did not finish successfully. The recording session is no longer marked active in the UI.",
-          inputLabel: context.getSelectedMicrophoneLabel(),
-          recordedAudio: null
-        })
-      );
-    } finally {
-      context.setRecordingCommandState(null);
-    }
-  }
-
   async function discardRecording() {
-    if (!context.getCanCancelRecording()) {
+    if (!context.getCanDiscardRecording()) {
       return;
     }
 
@@ -384,23 +348,17 @@ export function createRecordingController(context: RecordingControllerContext) {
     }
   }
 
-  async function startManualTranscription() {
-    const transcribableRecordedAudio = context.getTranscribableRecordedAudio();
-
-    if (!context.getCanRunManualTranscription() || transcribableRecordedAudio === null) {
-      return;
-    }
-
-    if (!(await hasCompletedRecordingAudio(transcribableRecordedAudio))) {
+  async function runTranscriptionForRecordedAudio(recordedAudio: RecordedAudioMetadata) {
+    if (!(await hasCompletedRecordingAudio(recordedAudio))) {
       context.resetTranscriptionRun();
-      const detail = `The completed recording is no longer available at ${transcribableRecordedAudio.path}.`;
+      const detail = `The completed recording is no longer available at ${recordedAudio.path}.`;
       context.setLatestManualTranscriptionFailure(detail);
-      context.setLatestCompletedRecordingMetadata(transcribableRecordedAudio);
+      context.setLatestCompletedRecordingMetadata(recordedAudio);
       context.setAppStatus(
         buildMissingManualRecordingStatus({
-          recordedAudio: transcribableRecordedAudio,
+          recordedAudio,
           detail,
-          transcriptPreview: `The recorded audio file is gone, so manual transcription cannot start and Retry transcription stays hidden. Record again to create a fresh file before transcribing. ${context.hiddenManualNotificationFailedMessage}`,
+          transcriptPreview: `The recorded audio file is gone, so transcription cannot start and Retry transcription stays hidden. Record again to create a fresh file before transcribing. ${context.hiddenManualNotificationFailedMessage}`,
           formatDuration: context.formatDuration
         })
       );
@@ -414,30 +372,30 @@ export function createRecordingController(context: RecordingControllerContext) {
 
     context.setAppStatus(
       getAppStatusForPhase("transcribing", {
-        headline: "Manual transcription is running.",
-        inputLabel: transcribableRecordedAudio.inputDeviceName,
+        headline: "Transcription is running.",
+        inputLabel: recordedAudio.inputDeviceName,
         detail:
           "SpeakEx is transcribing the current recorded audio with Gemini. Clipboard, history, default audio cleanup, retryable failure state, and hidden-window notifications follow your saved settings.",
         transcriptTitle: "Transcript incoming…",
-        transcriptPreview: `${context.formatFileName(transcribableRecordedAudio.path)} is being transcribed with Gemini.`,
-        durationLabel: context.formatDuration(transcribableRecordedAudio.durationMs),
-        recordingTiming: buildRecordingTimingFromRecordedAudio(transcribableRecordedAudio),
-        recordedAudio: transcribableRecordedAudio
+        transcriptPreview: `${context.formatFileName(recordedAudio.path)} is being transcribed with Gemini.`,
+        durationLabel: context.formatDuration(recordedAudio.durationMs),
+        recordingTiming: buildRecordingTimingFromRecordedAudio(recordedAudio),
+        recordedAudio
       })
     );
 
     try {
-      const result = await runCompletedRecordingTranscription(transcribableRecordedAudio);
-      const retainedRecordedAudio = buildRetainedRecordedAudio(transcribableRecordedAudio, result);
+      const result = await runCompletedRecordingTranscription(recordedAudio);
+      const retainedRecordedAudio = buildRetainedRecordedAudio(recordedAudio, result);
 
       context.setLatestTranscript(result.transcript);
       context.setLatestManualTranscriptionResult(result);
       context.setLatestManualOutcomeSettings(manualOutcomeSettings);
-      context.setLatestCompletedRecordingMetadata(transcribableRecordedAudio);
+      context.setLatestCompletedRecordingMetadata(recordedAudio);
       context.setAppStatus(
         buildCompletedManualStatus({
           result,
-          recordedAudio: transcribableRecordedAudio,
+          recordedAudio,
           retainedRecordedAudio,
           settings: manualOutcomeSettings,
           hiddenManualNotificationCompletedMessage: context.hiddenManualNotificationCompletedMessage,
@@ -450,25 +408,25 @@ export function createRecordingController(context: RecordingControllerContext) {
       }
     } catch (error) {
       const manualFailureDetail =
-        error instanceof Error ? error.message : "Unable to finish the manual transcription flow.";
-      const retryableRecordedAudio = (await hasCompletedRecordingAudio(transcribableRecordedAudio))
-        ? transcribableRecordedAudio
+        error instanceof Error ? error.message : "Unable to finish the transcription flow.";
+      const retryableRecordedAudio = (await hasCompletedRecordingAudio(recordedAudio))
+        ? recordedAudio
         : null;
 
       context.setLatestTranscript(null);
       context.setLatestManualOutcomeSettings(null);
       context.setLatestManualTranscriptionFailure(manualFailureDetail);
-      context.setLatestCompletedRecordingMetadata(transcribableRecordedAudio);
+      context.setLatestCompletedRecordingMetadata(recordedAudio);
       context.setAppStatus(
         getAppStatusForPhase("error", {
-          inputLabel: transcribableRecordedAudio.inputDeviceName,
+          inputLabel: recordedAudio.inputDeviceName,
           detail: manualFailureDetail,
           transcriptPreview:
             retryableRecordedAudio === null
               ? `Transcription did not finish, and the recorded audio file is no longer available for recovery. Retry transcription is hidden until you record again. ${context.hiddenManualNotificationFailedMessage}`
               : `Transcription did not finish, but the recorded audio file remains local so you can use Retry transcription to try the same recording again. ${context.hiddenManualNotificationFailedMessage}`,
-          durationLabel: context.formatDuration(transcribableRecordedAudio.durationMs),
-          recordingTiming: buildRecordingTimingFromRecordedAudio(transcribableRecordedAudio),
+          durationLabel: context.formatDuration(recordedAudio.durationMs),
+          recordingTiming: buildRecordingTimingFromRecordedAudio(recordedAudio),
           recordedAudio: retryableRecordedAudio
         })
       );
@@ -477,10 +435,65 @@ export function createRecordingController(context: RecordingControllerContext) {
     }
   }
 
+  async function confirmRecordingAndTranscribe() {
+    if (!context.getCanConfirmRecordingAndTranscribe()) {
+      return;
+    }
+
+    context.setRecordingCommandState("stopping");
+    stopRecordingStatusPolling();
+
+    try {
+      const stoppedRecording = await stopRecording();
+      const completedStatus = buildCompletedRecordingStatus({
+        stoppedRecording,
+        maxDurationMs: context.resolveRecordingLimitMs(),
+        formatDuration: context.formatDuration,
+        formatFileName: context.formatFileName
+      });
+      const recordedAudio = completedStatus.recordedAudio;
+
+      context.setActiveRecordingSession(null);
+      context.setLatestCompletedRecordingMetadata(recordedAudio);
+      context.setAppStatus(completedStatus);
+      context.setRecordingCommandState(null);
+
+      if (recordedAudio !== null) {
+        await runTranscriptionForRecordedAudio(recordedAudio);
+      }
+    } catch (error) {
+      context.setActiveRecordingSession(null);
+      context.setAppStatus(
+        getAppStatusForPhase("error", {
+          detail:
+            error instanceof Error
+              ? error.message
+              : "Unable to finish the recorder before transcription.",
+          transcriptPreview:
+            "SpeakEx could not finish the recording before starting transcription. Retry after confirming the recorder returned to idle.",
+          inputLabel: context.getSelectedMicrophoneLabel(),
+          recordedAudio: null
+        })
+      );
+    } finally {
+      context.setRecordingCommandState(null);
+    }
+  }
+
+  async function startManualTranscription() {
+    const transcribableRecordedAudio = context.getTranscribableRecordedAudio();
+
+    if (!context.getCanRunManualTranscription() || transcribableRecordedAudio === null) {
+      return;
+    }
+
+    await runTranscriptionForRecordedAudio(transcribableRecordedAudio);
+  }
+
   return {
     beginRecording,
+    confirmRecordingAndTranscribe,
     discardRecording,
-    finishRecording,
     loadRecordingDevices,
     startManualTranscription,
     stopRecordingStatusPolling,

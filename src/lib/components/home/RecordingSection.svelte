@@ -3,26 +3,23 @@
   import type { RecordedAudioMetadata } from "$lib/types/app-shell";
 
   export let phaseLabel: string;
-  export let headline = "";
-  export let detail = "";
   export let transcriptTitle = "";
   export let transcriptPreview = "";
-  export let inputLabel = "";
-  export let durationLabel = "—";
   export let isRecordingActive = false;
   export let elapsedTimeLabel = "—";
   export let latestTranscript: Transcript | null = null;
   export let recordedAudio: RecordedAudioMetadata | null = null;
   export let pingResponse = "";
   export let canStartRecording = false;
-  export let canStopRecording = false;
-  export let canCancelRecording = false;
+  export let canDiscardRecording = false;
+  export let canConfirmRecordingAndTranscribe = false;
+  export let hasTranscribableRecordedAudio = false;
   export let canRunManualTranscription = false;
   export let manualTranscriptionActionLabel = "Run transcription";
   export let geminiApiKeyPresence = false;
   export let onBeginRecording: () => void;
-  export let onFinishRecording: () => void;
   export let onDiscardRecording: () => void;
+  export let onConfirmRecordingAndTranscribe: () => void;
   export let onStartManualTranscription: () => void;
   export let onOpenSettings: () => void;
   export let onClearLatestTranscript: () => void;
@@ -45,102 +42,111 @@
 </script>
 
 <div class="main-content">
-  <h1>Where should we begin?</h1>
+  <h1>What should we write?</h1>
 
-  <div class="phase-summary">
-    <p class="phase-note">
-      Status: <span class="status-pill">{phaseLabel}</span>
-      {#if isRecordingActive}
-        <span class="status-pill success">Recording: {elapsedTimeLabel}</span>
-      {/if}
-    </p>
-
-    <div class="status-card">
-      <p class="card-eyebrow">Workflow</p>
-      <h2>{headline}</h2>
-      <p class="card-copy">{detail}</p>
-      <dl class="summary-grid">
-        <div>
-          <dt>Input</dt>
-          <dd>{inputLabel}</dd>
-        </div>
-        <div>
-          <dt>Duration</dt>
-          <dd>{durationLabel}</dd>
-        </div>
-      </dl>
+  {#if phaseLabel !== "Idle" || isRecordingActive}
+    <div class="phase-summary">
+      <p class="phase-note">
+        Status: <span class="status-pill">{phaseLabel}</span>
+        {#if isRecordingActive}
+          <span class="status-pill success">Recording: {elapsedTimeLabel}</span>
+        {/if}
+      </p>
     </div>
-  </div>
+  {/if}
 
   <div class="input-container">
     <div class="chat-input-wrapper">
-      <button
-        class="icon-btn"
-        title="Start recording"
-        aria-label="Start recording"
-        type="button"
-        on:click={onBeginRecording}
-        disabled={!canStartRecording}
-      >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      </button>
       <input type="text" class="chat-input" placeholder="Ask anything" bind:value={pingResponse} />
       <div class="input-actions">
-        <button
-          class="icon-btn"
-          title="Stop recording"
-          aria-label="Stop recording"
-          type="button"
-          on:click={onFinishRecording}
-          disabled={!canStopRecording}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-            <line x1="12" y1="19" x2="12" y2="23" />
-            <line x1="8" y1="23" x2="16" y2="23" />
-          </svg>
-        </button>
-        <button class="secondary-pill" type="button" on:click={onDiscardRecording} disabled={!canCancelRecording}>
-          Cancel
-        </button>
-        <button class="voice-btn" type="button" on:click={onStartManualTranscription} disabled={!canRunManualTranscription}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 1v22M5 8v8M19 8v8M9 11v2M15 11v2" />
-          </svg>
-          {manualTranscriptionActionLabel}
-        </button>
+        {#if isRecordingActive}
+          <button
+            class="icon-btn destructive-btn"
+            title="Discard recording"
+            aria-label="Discard recording"
+            type="button"
+            on:click={onDiscardRecording}
+            disabled={!canDiscardRecording}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+          <button
+            class="icon-btn confirm-btn"
+            title="Confirm recording and transcribe"
+            aria-label="Confirm recording and transcribe"
+            type="button"
+            on:click={onConfirmRecordingAndTranscribe}
+            disabled={!canConfirmRecordingAndTranscribe}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+          </button>
+        {:else if hasTranscribableRecordedAudio}
+          <button
+            class="voice-btn"
+            type="button"
+            title={manualTranscriptionActionLabel}
+            aria-label={manualTranscriptionActionLabel}
+            on:click={onStartManualTranscription}
+            disabled={!canRunManualTranscription}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 1v22M5 8v8M19 8v8M9 11v2M15 11v2" />
+            </svg>
+            {manualTranscriptionActionLabel}
+          </button>
+        {:else}
+          <button
+            class="voice-btn"
+            type="button"
+            title="Start recording"
+            aria-label="Start recording"
+            on:click={onBeginRecording}
+            disabled={!canStartRecording}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+            Start recording
+          </button>
+        {/if}
       </div>
     </div>
   </div>
 
   <div class="phase-summary">
-    <div class="status-card">
-      {#if latestTranscript}
-        <button
-          class="icon-btn status-card-close"
-          type="button"
-          aria-label="Clear latest transcript preview"
-          on:click={onClearLatestTranscript}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
-        </button>
-      {/if}
-      <p class="card-eyebrow">{transcriptTitle}</p>
-      {#if latestTranscript}
-        <pre class="transcript-preview">{latestTranscript.text}</pre>
-        <p class="card-copy compact-copy">
-          {latestTranscript.provider}{#if latestTranscript.model} · {latestTranscript.model}{/if}
-          {#if latestTranscript.language} · {latestTranscript.language}{/if}
-        </p>
-      {:else}
-        <p class="card-copy">{transcriptPreview}</p>
-      {/if}
-    </div>
+    {#if latestTranscript || recordedAudio}
+      <div class="status-card">
+        {#if latestTranscript}
+          <button
+            class="icon-btn status-card-close"
+            type="button"
+            aria-label="Clear latest transcript preview"
+            on:click={onClearLatestTranscript}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        {/if}
+        <p class="card-eyebrow">{transcriptTitle}</p>
+        {#if latestTranscript}
+          <pre class="transcript-preview">{latestTranscript.text}</pre>
+          <p class="card-copy compact-copy">
+            {latestTranscript.provider}{#if latestTranscript.model} · {latestTranscript.model}{/if}
+            {#if latestTranscript.language} · {latestTranscript.language}{/if}
+          </p>
+        {:else}
+          <p class="card-copy">{transcriptPreview}</p>
+        {/if}
+      </div>
+    {/if}
 
     {#if recordedAudio}
       <div class="status-card">
@@ -201,6 +207,8 @@
     font-weight: 600;
     margin-bottom: 1.5rem;
     color: #fff;
+    font-family: Georgia, "Times New Roman", serif;
+    font-style: italic;
   }
 
   .input-container {
@@ -259,27 +267,13 @@
   }
 
   .icon-btn:disabled,
-  .voice-btn:disabled,
-  .secondary-pill:disabled {
+  .voice-btn:disabled {
     opacity: 0.45;
     cursor: not-allowed;
   }
 
-  .secondary-pill {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(255, 255, 255, 0.06);
-    border-radius: 20px;
-    padding: 0.4rem 0.8rem;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #fff;
-    transition: background 0.2s;
-  }
-
-  .secondary-pill:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.14);
+  .destructive-btn {
+    color: #f3a8a8;
   }
 
   .voice-btn {
@@ -297,6 +291,16 @@
 
   .voice-btn:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.2);
+  }
+
+  .confirm-btn {
+    background: rgba(24, 174, 96, 0.15);
+    color: #9ef0ba;
+  }
+
+  .confirm-btn:hover:not(:disabled) {
+    background: rgba(24, 174, 96, 0.3);
+    color: #d3ffe2;
   }
 
   .phase-summary {
@@ -333,12 +337,6 @@
     border-radius: 12px;
     position: relative;
     box-sizing: border-box;
-  }
-
-  .status-card h2 {
-    margin: 0;
-    font-size: 1.2rem;
-    font-weight: 600;
   }
 
   .status-card-close {

@@ -41,7 +41,7 @@ export const navigationSections: NavigationSection[] = [
 export const recordingPlanSteps = [
   "Choose from the available microphones before you start recording.",
   "While recording is active, show elapsed time, remaining time, and the maximum duration clearly.",
-  "Stopping keeps the recording ready for manual Gemini transcription. If a manual run fails, Retry stays available while the recorded audio file still exists, and hidden-window failure notifications stay generic."
+  "Use the check button to stop and send the recording to Gemini, or use X to discard it. If a transcription fails before cleanup, Retry stays available while the recorded audio file still exists."
 ];
 
 const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
@@ -50,10 +50,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Idle",
     headline: "Ready to capture a local recording.",
     detail:
-      "Recording stays separate from transcription. After you stop, you can run Gemini manually. Manual results can copy to the clipboard, save to history, clean up audio by default, and send desktop notifications only while SpeakEx is hidden.",
+      "Start a recording, then use the check button to send the captured audio to Gemini. Results can copy to the clipboard, save to history, clean up audio by default, and send desktop notifications only while SpeakEx is hidden.",
     transcriptTitle: "No recorded audio yet.",
     transcriptPreview:
-      "Start a recording to create a temporary audio file, then run Gemini when you're ready. If a manual run fails before cleanup, Retry stays available while that audio file still exists.",
+      "Start a recording to create a temporary audio file locally. While recording, use the check button to send it to Gemini or X to discard it. If a transcription fails before cleanup, Retry stays available while that audio file still exists.",
     inputLabel: "System default microphone",
     durationLabel: "—",
     recordingTiming: null,
@@ -64,10 +64,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Recording",
     headline: "Recording is in progress.",
     detail:
-      "Audio capture is active. Use Stop to keep the current audio file or Cancel to discard it.",
+      "Audio capture is active. Use the check button to stop and send the current audio to Gemini, or X to discard it.",
     transcriptTitle: "Live capture in progress…",
     transcriptPreview:
-      "SpeakEx is recording to a temporary local audio file. No transcription runs automatically when capture ends, including at the 15-minute limit.",
+      "SpeakEx is recording to a temporary local audio file. Nothing is sent until you confirm the recording with the check button.",
     inputLabel: "System default microphone",
     durationLabel: "Recording…",
     recordingTiming: null,
@@ -76,7 +76,7 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
   transcribing: {
     phase: "transcribing",
     phaseLabel: "Transcribing",
-    headline: "Manual transcription is running.",
+    headline: "Transcription is running.",
     detail:
       "SpeakEx is transcribing the current recorded audio with Gemini.",
     transcriptTitle: "Draft transcript incoming…",

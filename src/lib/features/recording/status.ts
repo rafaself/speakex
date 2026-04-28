@@ -81,9 +81,9 @@ export function buildActiveRecordingStatus(args: {
           : args.status.phase === "cancelling"
             ? "Recording is cancelling."
             : "Recording is in progress.",
-    detail: `Audio capture is active and will stop automatically at ${args.formatDuration(args.status.maxDurationMs)}. Use Stop to keep the audio file or Cancel to discard it sooner.`,
+    detail: `Audio capture is active and will stop automatically at ${args.formatDuration(args.status.maxDurationMs)}. Use the check button to stop and send the audio to Gemini, or X to discard it sooner.`,
     transcriptTitle: "Live capture in progress…",
-    transcriptPreview: `Recording session ${args.status.activeSessionId ?? "current"} is saving a temporary audio file locally. No transcription will run automatically, including when the duration limit is reached.`,
+    transcriptPreview: `Recording session ${args.status.activeSessionId ?? "current"} is saving a temporary audio file locally. Nothing is sent until you confirm it with the check button, including before the duration limit is reached.`,
     inputLabel: args.status.inputDeviceName ?? args.selectedMicrophoneLabel,
     durationLabel: buildDurationSummaryLabel(recordingTiming, args),
     recordingTiming,
