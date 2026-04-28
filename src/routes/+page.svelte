@@ -185,7 +185,7 @@
     !isRunningTranscription &&
     !selectedMicrophoneUnavailable;
   $: canDiscardRecording =
-    activeRecordingSession !== null &&
+    (activeRecordingSession !== null || transcribableRecordedAudio !== null) &&
     recordingCommandState === null &&
     !isRunningTranscription;
   $: canConfirmRecordingAndTranscribe =
@@ -685,6 +685,7 @@
         transcriptTitle={$appStatus.transcriptTitle}
         transcriptPreview={$appStatus.transcriptPreview}
         isRecordingActive={activeRecordingSession !== null}
+        isRunningTranscription={isRunningTranscription}
         latestTranscript={latestTranscript}
         recordedAudio={displayedRecordedAudio}
         canStartRecording={canStartRecording}

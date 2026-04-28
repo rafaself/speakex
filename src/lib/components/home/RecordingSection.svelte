@@ -4,9 +4,12 @@
   import type { Transcript } from "$lib/native/transcription";
   import type { RecordedAudioMetadata } from "$lib/types/app-shell";
 
+  import LiveWaveform from "../ui/LiveWaveform.svelte";
+
   export let transcriptTitle = "";
   export let transcriptPreview = "";
   export let isRecordingActive = false;
+  export let isRunningTranscription = false;
   export let latestTranscript: Transcript | null = null;
   export let recordedAudio: RecordedAudioMetadata | null = null;
   export let canStartRecording = false;
@@ -22,6 +25,12 @@
   export let onStartManualTranscription: () => void;
   export let onOpenSettings: () => void;
   export let onClearLatestTranscript: () => void;
+
+  let editedTranscriptText = "";
+
+  $: if (latestTranscript) {
+    editedTranscriptText = latestTranscript.text;
+  }
 
   function formatFileSize(sizeBytes: number): string {
     if (sizeBytes < 1024) {
@@ -46,15 +55,60 @@
       <h1>What should we write?</h1>
 
       <div class="input-container">
-        <div class="chat-input-wrapper">
-          <input
-            type="text"
-            class="chat-input"
-            placeholder="Start your transcription..."
-            disabled={latestTranscript === null}
-          />
+        <div class="chat-input-wrapper" class:recording-mode={isRecordingActive || hasTranscribableRecordedAudio || isRunningTranscription}>
+          {#if latestTranscript}
+            <textarea
+              class="chat-input transcript-edit"
+              bind:value={editedTranscriptText}
+              placeholder="Edit your transcription..."
+            ></textarea>
+          {:else if isRecordingActive || hasTranscribableRecordedAudio || isRunningTranscription}
+            <div class="waveform-container">
+              <LiveWaveform 
+                active={isRecordingActive} 
+                frozen={hasTranscribableRecordedAudio || isRunningTranscription} 
+                shimmer={isRunningTranscription} 
+              />
+            </div>
+          {:else}
+            <input
+              type="text"
+              class="chat-input"
+              placeholder="Start your transcription..."
+              on:focus={onBeginRecording}
+              readonly
+            />
+          {/if}
           <div class="input-actions">
-            {#if isRecordingActive}
+            {#if latestTranscript}
+              <div class="recording-actions" in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}>
+                <button
+                  class="icon-btn destructive-btn"
+                  title="Discard transcription"
+                  aria-label="Discard transcription"
+                  type="button"
+                  on:click={onClearLatestTranscript}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
+                <button
+                  class="icon-btn confirm-btn"
+                  title="Send transcription"
+                  aria-label="Send transcription"
+                  type="button"
+                  on:click={() => {
+                    // Logic to "send" could be implemented here
+                    onClearLatestTranscript();
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                  </svg>
+                </button>
+              </div>
+            {:else if isRecordingActive}
               <div class="recording-actions" in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}>
                 <button
                   class="icon-btn destructive-btn"
@@ -82,7 +136,18 @@
                 </button>
               </div>
             {:else if hasTranscribableRecordedAudio}
-              <div in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}>
+              <div class="recording-actions" in:fade={{ duration: 180 }} out:fade={{ duration: 140 }}>
+                <button
+                  class="icon-btn destructive-btn"
+                  title="Discard recording"
+                  aria-label="Discard recording"
+                  type="button"
+                  on:click={onDiscardRecording}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
                 <button
                   class="voice-btn"
                   type="button"
@@ -253,10 +318,29 @@
     background: transparent;
     border: none;
     color: #fff;
-    font-size: 1rem;
+    font-size: 1.1rem;
     padding: 0.75rem 0;
     outline: none;
     width: 100%;
+    resize: none;
+    min-height: 24px;
+    line-height: 1.5;
+  }
+
+  .transcript-edit {
+    min-height: 60px;
+    max-height: 200px;
+  }
+
+  .waveform-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 0;
+  }
+
+  .chat-input-wrapper.recording-mode {
+    padding-left: 1.5rem;
   }
 
   .chat-input::placeholder {

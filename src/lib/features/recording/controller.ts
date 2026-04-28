@@ -323,14 +323,22 @@ export function createRecordingController(context: RecordingControllerContext) {
     stopRecordingStatusPolling();
 
     try {
-      const cancelled = await cancelRecording();
+      let cancelledSessionId = activeRecordingSession?.id ?? "unknown";
+      let deletedAudioPath: string | null = null;
+
+      if (activeRecordingSession !== null) {
+        const cancelled = await cancelRecording();
+        cancelledSessionId = cancelled.sessionId;
+        deletedAudioPath = cancelled.deletedAudioPath;
+      }
+
       context.setLatestRecordingStatus(null);
       context.setActiveRecordingSession(null);
       context.resetTranscriptionRun({ clearCompletedRecordingMetadata: true });
       context.syncIdleStatus(
-        cancelled.deletedAudioPath
-          ? `Recording ${cancelled.sessionId} was cancelled and the temporary file was deleted from the app cache.`
-          : `Recording ${cancelled.sessionId} was cancelled before any audio file needed to be kept.`
+        deletedAudioPath
+          ? `Recording ${cancelledSessionId} was cancelled and the temporary file was deleted from the app cache.`
+          : `Recording ${cancelledSessionId} was discarded.`
       );
     } catch (error) {
       context.setActiveRecordingSession(null);
