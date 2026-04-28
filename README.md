@@ -15,10 +15,10 @@ The current MVP lets you record audio from the main window, tray, or global shor
 ## Scripts
 
 - `npm run dev` — start the frontend dev server
-- `npm run tauri dev` — run the desktop app in development
+- `npm run tauri dev` — run the desktop app in development; on Linux hosts this automatically uses the `speakex-dev` Toolbox container
 - `npm run check` — run the Svelte/TypeScript checks
 - `npm run build` — build the frontend bundle
-- `npm run tauri build` — build the desktop application
+- `npm run tauri build` — build the desktop application; on Linux hosts this automatically uses the `speakex-dev` Toolbox container
 
 ## Cross-platform validation
 
@@ -45,8 +45,8 @@ This validates that the frontend, Rust backend, and Tauri desktop app still comp
 
 SpeakEx is currently configured for a Linux-first AppImage packaging path.
 
-- Run the packaging build from the repo root with `toolbox run --container speakex-dev npm run tauri build`.
-- If you are already inside that Toolbox environment, run `npm run tauri build`.
+- On Linux hosts, run the packaging build from the repo root with `npm run tauri build`; the wrapper script automatically uses the `speakex-dev` Toolbox container.
+- If you are already inside that Toolbox environment, `npm run tauri build` runs locally inside the container without nesting Toolbox calls.
 - When AppImage bundling succeeds, expect the final bundle under `src-tauri/target/release/bundle/appimage/`, with the release artifact appearing there as `SpeakEx_0.1.0_amd64.AppImage`.
 
 ### Current environment limitation
