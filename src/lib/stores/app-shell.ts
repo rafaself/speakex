@@ -40,7 +40,7 @@ export const navigationSections: NavigationSection[] = [
 export const recordingPlanSteps = [
   "Choose from the available microphones before you start recording.",
   "While recording is active, show elapsed time, remaining time, and the maximum duration clearly.",
-  "Stopping keeps the recording ready for either a mock transcript or a manual Gemini transcription. If a manual run fails, Retry stays available while the recorded audio file still exists, and hidden-window failure notifications stay generic."
+  "Stopping keeps the recording ready for manual Gemini transcription. If a manual run fails, Retry stays available while the recorded audio file still exists, and hidden-window failure notifications stay generic."
 ];
 
 const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
@@ -49,10 +49,10 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Idle",
     headline: "Ready to capture a local recording.",
     detail:
-      "Recording stays separate from transcription. After you stop, you can run either a mock transcript or a manual Gemini transcription. Manual results can copy to the clipboard, save to history, clean up audio by default, and send desktop notifications only while SpeakEx is hidden.",
+      "Recording stays separate from transcription. After you stop, you can run Gemini manually. Manual results can copy to the clipboard, save to history, clean up audio by default, and send desktop notifications only while SpeakEx is hidden.",
     transcriptTitle: "No recorded audio yet.",
     transcriptPreview:
-      "Start a recording to create a temporary audio file, then choose either the mock transcript or manual Gemini transcription when you're ready. If a manual run fails before cleanup, Retry stays available while that audio file still exists.",
+      "Start a recording to create a temporary audio file, then run Gemini when you're ready. If a manual run fails before cleanup, Retry stays available while that audio file still exists.",
     inputLabel: "System default microphone",
     durationLabel: "—",
     recordingTiming: null,
@@ -75,12 +75,12 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
   transcribing: {
     phase: "transcribing",
     phaseLabel: "Transcribing",
-    headline: "Mock transcription is running.",
+    headline: "Manual transcription is running.",
     detail:
-      "SpeakEx is running the mock transcript command. Recorded audio is not sent through this mock path.",
+      "SpeakEx is transcribing the current recorded audio with Gemini.",
     transcriptTitle: "Draft transcript incoming…",
     transcriptPreview:
-      "Mock and manual Gemini transcription stay separate from recording, and Retry only applies to the current recorded audio file while it is still available.",
+      "Gemini transcription stays separate from recording, and Retry only applies to the current recorded audio file while it is still available.",
     inputLabel: "System default microphone",
     durationLabel: "—",
     recordingTiming: null,
@@ -91,10 +91,9 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phaseLabel: "Completed",
     headline: "Recorded audio is ready.",
     detail:
-      "Recording finished successfully and the audio file is ready for a mock transcript or manual Gemini transcription. No transcription ran automatically, and Retry only applies while this file still exists.",
+      "Recording finished successfully and the audio file is ready for manual Gemini transcription. No transcription ran automatically, and Retry only applies while this file still exists.",
     transcriptTitle: "Recorded audio metadata",
-    transcriptPreview:
-      "Review the audio details below, then choose either the mock transcript or the full Gemini transcription flow.",
+    transcriptPreview: "Review the audio details below, then run the Gemini transcription flow.",
     inputLabel: "System default microphone",
     durationLabel: "—",
     recordingTiming: null,
@@ -104,8 +103,7 @@ const appStatusByPhase: Record<RecordingPhase, AppStatus> = {
     phase: "error",
     phaseLabel: "Error",
     headline: "Recording workflow error.",
-    detail:
-      "Recording ran into a problem. You can still use the mock transcript path separately from recording.",
+    detail: "Recording ran into a problem. Check your microphone selection and try again.",
     transcriptTitle: "Native recording error",
     transcriptPreview:
       "SpeakEx could not finish the recording action. Check your microphone selection and try again.",

@@ -10,15 +10,13 @@ pub mod tray;
 
 use std::io;
 use std::{
-    path::PathBuf,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use history_database::HistoryDatabase;
 use history_repository::{
     ClearHistoryResult, DeleteTranscriptionResult, HistoryRepository, HistoryTranscription,
-    HistoryTranscriptionSummary, NewHistoryTranscription,
+    HistoryTranscriptionSummary,
 };
 use manual_flow::{
     local_audio_file_exists, ManualTranscriptionFlow, ManualTranscriptionSettings,
@@ -35,8 +33,7 @@ use tauri::Manager;
 use tauri::{AppHandle, State, WindowEvent};
 use tauri_plugin_store::StoreExt;
 use transcription::{
-    AudioInput, GeminiProvider, MockTranscriptionProvider, Transcript, TranscriptionOptions,
-    TranscriptionService,
+    AudioInput, GeminiProvider, Transcript, TranscriptionOptions, TranscriptionService,
 };
 
 #[tauri::command]
@@ -191,13 +188,6 @@ struct TranscriptionSettings {
     default_language: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RunMockTranscriptionResult {
-    transcript: Transcript,
-    saved_to_history: bool,
-}
-
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RunGeminiTranscriptionRequest {
@@ -269,52 +259,6 @@ fn has_completed_recording_audio(request: RunCompletedRecordingTranscriptionRequ
     local_audio_file_exists(&request.audio_input.path)
 }
 
-#[tauri::command]
-async fn run_mock_transcription(
-    app: AppHandle,
-    history_database: tauri::State<'_, HistoryDatabase>,
-    transcription_service: tauri::State<'_, TranscriptionService>,
-) -> Result<RunMockTranscriptionResult, String> {
-    let settings = load_transcription_settings(&app)?;
-    let service = transcription_service.inner().clone();
-    let history_repository = HistoryRepository::new(history_database.inner().clone());
-    let transcript = service
-        .transcribe(
-            AudioInput::new(
-                PathBuf::from("mock-recording.wav"),
-                "audio/wav",
-                Some(18_000),
-            ),
-            TranscriptionOptions {
-                language: settings.default_language.clone(),
-                prompt: Some("Release 0.5 desktop-only mock transcription pipeline.".to_string()),
-                model: None,
-            },
-        )
-        .await
-        .map_err(|error| format!("mock transcription failed: {error}"))?;
-
-    if settings.save_transcription_history {
-        history_repository.save_transcription(&NewHistoryTranscription {
-            id: generate_mock_transcription_id()?,
-            text: transcript.text.clone(),
-            provider: transcript.provider.clone(),
-            model: transcript.model.clone(),
-            language: transcript.language.clone(),
-            duration_ms: normalize_duration_ms(transcript.duration_ms)?,
-            audio_path: None,
-            audio_deleted: true,
-            copied_to_clipboard: false,
-            error: None,
-        })?;
-    }
-
-    Ok(RunMockTranscriptionResult {
-        transcript,
-        saved_to_history: settings.save_transcription_history,
-    })
-}
-
 fn load_transcription_settings(app: &AppHandle) -> Result<TranscriptionSettings, String> {
     let store = app
         .store("settings.json")
@@ -345,28 +289,6 @@ fn load_transcription_settings(app: &AppHandle) -> Result<TranscriptionSettings,
     })
 }
 
-fn generate_mock_transcription_id() -> Result<String, String> {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| format!("failed to generate mock transcription identifier: {error}"))?;
-
-    Ok(format!(
-        "mock-{}-{}",
-        timestamp.as_secs(),
-        timestamp.subsec_nanos()
-    ))
-}
-
-fn normalize_duration_ms(duration_ms: Option<u64>) -> Result<Option<i64>, String> {
-    duration_ms
-        .map(|value| {
-            i64::try_from(value).map_err(|_| {
-                format!("mock transcription duration {value}ms exceeds supported history range")
-            })
-        })
-        .transpose()
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -391,9 +313,6 @@ pub fn run() {
 
             app.manage(RecorderService::new(recordings_dir));
             app.manage(SecretStoreService::new());
-            app.manage(TranscriptionService::new(Arc::new(
-                MockTranscriptionProvider::new(),
-            )));
             app.manage(tray::AppExitState::default());
             app.manage(ShortcutService::default());
             tray::initialize(app.handle()).map_err(io::Error::other)?;
@@ -423,8 +342,7 @@ pub fn run() {
             clear_gemini_api_key,
             run_gemini_transcription,
             run_completed_recording_transcription,
-            has_completed_recording_audio,
-            run_mock_transcription
+            has_completed_recording_audio
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

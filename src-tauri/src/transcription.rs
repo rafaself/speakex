@@ -121,57 +121,8 @@ pub trait TranscriptionProvider: Send + Sync {
     fn capabilities(&self) -> ProviderCapabilities;
 }
 
-pub const MOCK_PROVIDER_NAME: &str = "mock";
-pub const MOCK_PROVIDER_MODEL: &str = "mock-local-v1";
 pub const GEMINI_PROVIDER_NAME: &str = "gemini";
 pub const DEFAULT_GEMINI_MODEL: &str = "gemini-2.0-flash";
-
-#[derive(Clone, Debug, Default)]
-pub struct MockTranscriptionProvider;
-
-impl MockTranscriptionProvider {
-    pub fn new() -> Self {
-        Self
-    }
-
-    fn build_fake_text(input: &AudioInput) -> String {
-        let source_name = input
-            .path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .filter(|name| !name.is_empty())
-            .unwrap_or("audio input");
-
-        format!("Mock transcript for {source_name}")
-    }
-}
-
-#[async_trait::async_trait]
-impl TranscriptionProvider for MockTranscriptionProvider {
-    async fn transcribe(
-        &self,
-        input: AudioInput,
-        options: TranscriptionOptions,
-    ) -> Result<Transcript, TranscriptionProviderError> {
-        Ok(Transcript {
-            text: Self::build_fake_text(&input),
-            provider: self.name().to_string(),
-            model: options
-                .model
-                .or_else(|| Some(MOCK_PROVIDER_MODEL.to_string())),
-            language: options.language,
-            duration_ms: input.duration_ms,
-        })
-    }
-
-    fn name(&self) -> &'static str {
-        MOCK_PROVIDER_NAME
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::new(true, true, false)
-    }
-}
 
 #[derive(Clone)]
 pub struct GeminiProvider {
@@ -661,10 +612,9 @@ mod tests {
     use super::{
         extract_gemini_transcript_text, AudioInput, GeminiApiClient, GeminiApiKeyProvider,
         GeminiGenerateContentResponse, GeminiProvider, GeminiResponseContent, GeminiResponsePart,
-        GeminiUploadedFile, MockTranscriptionProvider, ProviderCapabilities, ResolvedGeminiOptions,
+        GeminiUploadedFile, ProviderCapabilities, ResolvedGeminiOptions, Transcript,
         TranscriptionOptions, TranscriptionProvider, TranscriptionProviderError,
-        TranscriptionService, DEFAULT_GEMINI_MODEL, GEMINI_PROVIDER_NAME, MOCK_PROVIDER_MODEL,
-        MOCK_PROVIDER_NAME,
+        TranscriptionService, DEFAULT_GEMINI_MODEL, GEMINI_PROVIDER_NAME,
     };
     use std::path::PathBuf;
     use std::sync::{
@@ -702,37 +652,6 @@ mod tests {
         let error = TranscriptionProviderError::new("provider failed");
 
         assert_eq!(error.to_string(), "provider failed");
-    }
-
-    #[test]
-    fn mock_provider_exposes_expected_metadata() {
-        let provider = MockTranscriptionProvider::new();
-
-        assert_eq!(provider.name(), MOCK_PROVIDER_NAME);
-        assert_eq!(
-            provider.capabilities(),
-            ProviderCapabilities::new(true, true, false)
-        );
-    }
-
-    #[test]
-    fn mock_provider_returns_fake_transcript() {
-        let provider = MockTranscriptionProvider::new();
-        let input = AudioInput::new(PathBuf::from("recording.wav"), "audio/wav", Some(1234));
-        let options = TranscriptionOptions {
-            language: Some("en-US".to_string()),
-            prompt: Some("Summarize clearly".to_string()),
-            model: None,
-        };
-
-        let transcript = tauri::async_runtime::block_on(provider.transcribe(input, options))
-            .expect("mock provider should succeed");
-
-        assert_eq!(transcript.text, "Mock transcript for recording.wav");
-        assert_eq!(transcript.provider, MOCK_PROVIDER_NAME);
-        assert_eq!(transcript.model.as_deref(), Some(MOCK_PROVIDER_MODEL));
-        assert_eq!(transcript.language.as_deref(), Some("en-US"));
-        assert_eq!(transcript.duration_ms, Some(1234));
     }
 
     #[test]
@@ -910,27 +829,60 @@ mod tests {
 
     #[test]
     fn transcription_service_delegates_to_provider() {
-        let service = TranscriptionService::new(Arc::new(MockTranscriptionProvider::new()));
+        let service = TranscriptionService::new(Arc::new(FakeTranscriptionProvider));
         let input = AudioInput::new(PathBuf::from("note.m4a"), "audio/mp4", Some(900));
         let options = TranscriptionOptions {
             language: None,
             prompt: None,
-            model: Some("mock-custom".to_string()),
+            model: Some("delegated-custom".to_string()),
         };
 
         let transcript = tauri::async_runtime::block_on(service.transcribe(input, options))
-            .expect("transcription service should return mock transcript");
+            .expect("transcription service should delegate to the provider");
 
-        assert_eq!(service.provider_name(), MOCK_PROVIDER_NAME);
+        assert_eq!(service.provider_name(), "test-provider");
         assert_eq!(
             service.provider_capabilities(),
-            ProviderCapabilities::new(true, true, false)
+            ProviderCapabilities::new(true, false, true)
         );
-        assert_eq!(transcript.text, "Mock transcript for note.m4a");
-        assert_eq!(transcript.provider, MOCK_PROVIDER_NAME);
-        assert_eq!(transcript.model.as_deref(), Some("mock-custom"));
+        assert_eq!(transcript.text, "Delegated transcript for note.m4a");
+        assert_eq!(transcript.provider, "test-provider");
+        assert_eq!(transcript.model.as_deref(), Some("delegated-custom"));
         assert_eq!(transcript.language, None);
         assert_eq!(transcript.duration_ms, Some(900));
+    }
+
+    struct FakeTranscriptionProvider;
+
+    #[async_trait::async_trait]
+    impl TranscriptionProvider for FakeTranscriptionProvider {
+        async fn transcribe(
+            &self,
+            input: AudioInput,
+            options: TranscriptionOptions,
+        ) -> Result<Transcript, TranscriptionProviderError> {
+            let source_name = input
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("audio input");
+
+            Ok(Transcript {
+                text: format!("Delegated transcript for {source_name}"),
+                provider: self.name().to_string(),
+                model: options.model,
+                language: options.language,
+                duration_ms: input.duration_ms,
+            })
+        }
+
+        fn name(&self) -> &'static str {
+            "test-provider"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new(true, false, true)
+        }
     }
 
     #[derive(Default)]

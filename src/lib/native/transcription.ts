@@ -14,11 +14,6 @@ export interface TranscriptionAudioInput {
   durationMs: number | null;
 }
 
-export interface RunMockTranscriptionResult {
-  transcript: Transcript;
-  savedToHistory: boolean;
-}
-
 export interface RunCompletedRecordingTranscriptionResult {
   transcript: Transcript;
   historyId: string | null;
@@ -29,10 +24,6 @@ export interface RunCompletedRecordingTranscriptionResult {
   audioDeleted: boolean;
   audioDeleteError: string | null;
   retainedAudioPath: string | null;
-}
-
-export async function runMockTranscription(): Promise<RunMockTranscriptionResult> {
-  return invoke<RunMockTranscriptionResult>("run_mock_transcription");
 }
 
 export async function runCompletedRecordingTranscription(
