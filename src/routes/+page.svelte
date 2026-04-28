@@ -16,7 +16,6 @@
   import { createSettingsController } from "$lib/features/settings/controller";
   import { type HistoryTranscription } from "$lib/native/history";
   import { type RecordingShortcutStatus } from "$lib/native/shortcut";
-  import { ping } from "$lib/native/ping";
   import {
     type ActiveRecordingSession,
     type RecordingInputDevice,
@@ -59,7 +58,6 @@
   const hiddenManualNotificationFailedMessage =
     "If SpeakEx was hidden when this transcription failed, you may also have seen a generic desktop notification. The detailed error stays in SpeakEx.";
 
-  let pingResponse = "";
   let settingsState: SettingsState = "loading";
   let settingsError = "";
   let geminiApiKeyDraft = "";
@@ -180,10 +178,6 @@
   );
   $: transcribableRecordedAudio = $appStatus.recordedAudio;
   $: displayedRecordedAudio = transcribableRecordedAudio ?? latestCompletedRecordingMetadata;
-  $: currentRecordingTiming = $appStatus.recordingTiming;
-  $: elapsedTimeLabel = formatDuration(
-    currentRecordingTiming?.elapsedMs ?? displayedRecordedAudio?.durationMs ?? null
-  );
   $: canStartRecording =
     recordingDevicesState === "ready" &&
     recordingCommandState === null &&
@@ -218,14 +212,6 @@
       : latestTranscript !== null
         ? "Transcribe again"
         : "Run transcription";
-
-  async function runPing() {
-    try {
-      pingResponse = await ping();
-    } catch {
-      pingResponse = "";
-    }
-  }
 
   async function initializeWorkspace() {
     await Promise.all([
@@ -413,7 +399,6 @@
   }
 
   onMount(() => {
-    void runPing();
     void initializeWorkspace();
     void loadHistoryEntries();
   });
@@ -697,12 +682,9 @@
   <section class="workspace">
     {#if $activeSection === "recording"}
       <RecordingSection
-        bind:pingResponse
-        phaseLabel={$appStatus.phaseLabel}
         transcriptTitle={$appStatus.transcriptTitle}
         transcriptPreview={$appStatus.transcriptPreview}
         isRecordingActive={activeRecordingSession !== null}
-        elapsedTimeLabel={elapsedTimeLabel}
         latestTranscript={latestTranscript}
         recordedAudio={displayedRecordedAudio}
         canStartRecording={canStartRecording}

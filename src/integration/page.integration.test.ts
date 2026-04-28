@@ -226,6 +226,7 @@ describe("+page integration", () => {
     expect(screen.queryByText("Ready to capture a local recording.")).toBeNull();
     expect(screen.queryByText("Status:")).toBeNull();
     expect(screen.queryByText("No recorded audio yet.")).toBeNull();
+    expect(screen.queryByDisplayValue("pong from Rust")).toBeNull();
     expect(screen.getByText(/Gemini API key is missing/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Start recording" })).toBeTruthy();
 

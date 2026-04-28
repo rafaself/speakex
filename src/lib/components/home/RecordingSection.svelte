@@ -2,14 +2,11 @@
   import type { Transcript } from "$lib/native/transcription";
   import type { RecordedAudioMetadata } from "$lib/types/app-shell";
 
-  export let phaseLabel: string;
   export let transcriptTitle = "";
   export let transcriptPreview = "";
   export let isRecordingActive = false;
-  export let elapsedTimeLabel = "—";
   export let latestTranscript: Transcript | null = null;
   export let recordedAudio: RecordedAudioMetadata | null = null;
-  export let pingResponse = "";
   export let canStartRecording = false;
   export let canDiscardRecording = false;
   export let canConfirmRecordingAndTranscribe = false;
@@ -44,20 +41,9 @@
 <div class="main-content">
   <h1>What should we write?</h1>
 
-  {#if phaseLabel !== "Idle" || isRecordingActive}
-    <div class="phase-summary">
-      <p class="phase-note">
-        Status: <span class="status-pill">{phaseLabel}</span>
-        {#if isRecordingActive}
-          <span class="status-pill success">Recording: {elapsedTimeLabel}</span>
-        {/if}
-      </p>
-    </div>
-  {/if}
-
   <div class="input-container">
     <div class="chat-input-wrapper">
-      <input type="text" class="chat-input" placeholder="Ask anything" bind:value={pingResponse} />
+      <input type="text" class="chat-input" placeholder="Ask anything" />
       <div class="input-actions">
         {#if isRecordingActive}
           <button
@@ -309,22 +295,6 @@
     gap: 0.5rem;
     margin-top: 1rem;
     width: min(100%, 600px);
-  }
-
-  .phase-note {
-    margin: 0;
-  }
-
-  .status-pill {
-    font-size: 0.75rem;
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .status-pill.success {
-    margin-left: 0.5rem;
   }
 
   .status-card {
