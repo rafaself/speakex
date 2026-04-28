@@ -209,7 +209,7 @@
   .main-content h1 {
     position: absolute;
     left: 50%;
-    bottom: calc(100% + 0.875rem);
+    bottom: calc(100% + 1.5rem);
     transform: translateX(-50%);
     font-size: 2.25rem;
     font-weight: 600;
