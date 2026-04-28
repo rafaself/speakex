@@ -45,7 +45,12 @@
 
       <div class="input-container">
         <div class="chat-input-wrapper">
-          <input type="text" class="chat-input" placeholder="Ask anything" />
+          <input
+            type="text"
+            class="chat-input"
+            placeholder="Start your transcription..."
+            disabled={latestTranscript === null}
+          />
           <div class="input-actions">
             {#if isRecordingActive}
               <button
@@ -88,20 +93,19 @@
               </button>
             {:else}
               <button
-                class="voice-btn"
+                class="voice-btn start-recording-btn"
                 type="button"
                 title="Start recording"
                 aria-label="Start recording"
                 on:click={onBeginRecording}
                 disabled={!canStartRecording}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
                   <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                   <line x1="12" y1="19" x2="12" y2="23" />
                   <line x1="8" y1="23" x2="16" y2="23" />
                 </svg>
-                Start recording
               </button>
             {/if}
           </div>
@@ -249,6 +253,12 @@
 
   .chat-input::placeholder {
     color: #9b9b9b;
+    font-style: italic;
+  }
+
+  .chat-input:disabled {
+    cursor: default;
+    opacity: 1;
   }
 
   .input-actions {
@@ -277,7 +287,7 @@
   .icon-btn:disabled,
   .voice-btn:disabled {
     opacity: 0.45;
-    cursor: not-allowed;
+    cursor: default;
   }
 
   .destructive-btn {
@@ -295,6 +305,14 @@
     font-weight: 600;
     transition: background 0.2s;
     color: #fff;
+  }
+
+  .start-recording-btn {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 999px;
+    justify-content: center;
   }
 
   .voice-btn:hover:not(:disabled) {

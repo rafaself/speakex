@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
+import "@testing-library/jest-dom/vitest";
 
 import { createDefaultAppSettings } from "$lib/settings/schema";
 import {
@@ -229,6 +230,7 @@ describe("+page integration", () => {
     expect(screen.queryByDisplayValue("pong from Rust")).toBeNull();
     expect(screen.getByText(/Gemini API key is missing/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Start recording" })).toBeTruthy();
+    expect(screen.getByPlaceholderText("Start your transcription...")).toBeDisabled();
 
     await user.click(screen.getAllByRole("button", { name: "Settings" })[0]);
 

@@ -296,7 +296,7 @@
 
   .menu-option:disabled {
     opacity: 0.45;
-    cursor: not-allowed;
+    cursor: default;
   }
 
   .menu-option-check {

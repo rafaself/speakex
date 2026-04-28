@@ -330,7 +330,7 @@
 
   .primary-pill:disabled {
     opacity: 0.45;
-    cursor: not-allowed;
+    cursor: default;
   }
 
   .status-copy {
@@ -383,7 +383,7 @@
 
   .secondary-pill:disabled {
     opacity: 0.45;
-    cursor: not-allowed;
+    cursor: default;
   }
 
   .preferences {

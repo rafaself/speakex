@@ -775,7 +775,7 @@
 
   :global(button:disabled),
   :global(select:disabled) {
-    cursor: not-allowed;
+    cursor: default;
   }
 
   .app-shell {
