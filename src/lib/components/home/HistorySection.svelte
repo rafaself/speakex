@@ -109,7 +109,6 @@
 
   .history-layout {
     justify-content: flex-start;
-    padding-top: 5rem;
   }
 
   .content {

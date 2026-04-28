@@ -223,7 +223,6 @@ describe("+page integration", () => {
 
     await screen.findByRole("heading", { name: "Where should we begin?" });
 
-    expect(screen.getByRole("button", { name: "SpeakEx" })).toBeTruthy();
     expect(screen.getByText("Ready to capture a local recording.")).toBeTruthy();
     expect(screen.getByText(/Gemini API key is missing/i)).toBeTruthy();
 

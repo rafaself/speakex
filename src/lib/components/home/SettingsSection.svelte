@@ -226,7 +226,6 @@
 
   .settings-layout {
     justify-content: flex-start;
-    padding: 5rem 2rem;
   }
 
   .content {

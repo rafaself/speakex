@@ -3,7 +3,6 @@
   import { get } from "svelte/store";
 
   import Sidebar from "$lib/components/app-shell/Sidebar.svelte";
-  import TopBar from "$lib/components/app-shell/TopBar.svelte";
   import HistorySection from "$lib/components/home/HistorySection.svelte";
   import RecordingSection from "$lib/components/home/RecordingSection.svelte";
   import SettingsSection from "$lib/components/home/SettingsSection.svelte";
@@ -692,8 +691,6 @@
   />
 
   <section class="workspace">
-    <TopBar />
-
     {#if $activeSection === "recording"}
       <RecordingSection
         bind:pingResponse
