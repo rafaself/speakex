@@ -309,12 +309,30 @@
 
   .settings-select {
     width: 100%;
-    background: #2f2f2f;
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: #2f2f2f;
+    background-image:
+      linear-gradient(45deg, transparent 50%, #b4b4b4 50%),
+      linear-gradient(135deg, #b4b4b4 50%, transparent 50%);
+    background-position:
+      calc(100% - 1.15rem) calc(50% - 0.12rem),
+      calc(100% - 0.8rem) calc(50% - 0.12rem);
+    background-size:
+      0.4rem 0.4rem,
+      0.4rem 0.4rem;
+    background-repeat: no-repeat;
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: #fff;
-    padding: 0.75rem;
+    color-scheme: dark;
+    padding: 0.75rem 2.75rem 0.75rem 0.75rem;
     border-radius: 12px;
     outline: none;
+  }
+
+  .settings-select option {
+    background: #2f2f2f;
+    color: #fff;
   }
 
   .preferences {
