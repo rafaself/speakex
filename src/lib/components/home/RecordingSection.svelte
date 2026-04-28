@@ -80,12 +80,6 @@
   </div>
 </div>
 
-<footer class="footer-disclaimer">
-  By using SpeakEx, you agree to our <button class="legal-link" type="button">Terms</button> and have read
-  our <button class="legal-link" type="button">Privacy Policy</button>. See
-  <button class="legal-link" type="button">Cookie Preferences</button>.
-</footer>
-
 <style>
   .main-content {
     flex: 1;
@@ -234,17 +228,4 @@
     text-decoration: underline;
   }
 
-  .footer-disclaimer {
-    font-size: 0.75rem;
-    color: #9b9b9b;
-    padding: 1rem;
-    text-align: center;
-    max-width: 768px;
-    margin: 0 auto;
-  }
-
-  .legal-link {
-    color: inherit;
-    text-decoration: underline;
-  }
 </style>

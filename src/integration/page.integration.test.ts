@@ -196,7 +196,6 @@ describe("+page integration", () => {
     await screen.findByRole("heading", { name: "Where should we begin?" });
 
     expect(screen.getByRole("button", { name: "SpeakEx" })).toBeTruthy();
-    expect(screen.getByText(/By using SpeakEx/)).toBeTruthy();
     expect(screen.getByText(/Gemini API key is missing/i)).toBeTruthy();
 
     await user.click(screen.getAllByRole("button", { name: "Settings" })[0]);
@@ -211,7 +210,7 @@ describe("+page integration", () => {
     render(Page);
 
     await screen.findByRole("heading", { name: "Where should we begin?" });
-    await user.click(screen.getByRole("button", { name: "Search chats" }));
+    await user.click(screen.getByRole("button", { name: "History" }));
 
     expect(await screen.findByRole("heading", { name: "History" })).toBeTruthy();
 
