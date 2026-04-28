@@ -44,3 +44,13 @@ export async function runCompletedRecordingTranscription(
     }
   });
 }
+
+export async function hasCompletedRecordingAudio(
+  audioInput: TranscriptionAudioInput
+): Promise<boolean> {
+  return invoke<boolean>("has_completed_recording_audio", {
+    request: {
+      audioInput
+    }
+  });
+}

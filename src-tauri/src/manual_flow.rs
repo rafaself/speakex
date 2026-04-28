@@ -74,6 +74,13 @@ impl ManualTranscriptionFlow {
         audio_input: AudioInput,
         settings: ManualTranscriptionSettings,
     ) -> Result<RunCompletedRecordingTranscriptionResult, String> {
+        if !self.file_system.is_file(&audio_input.path) {
+            return Err(format!(
+                "The completed recording is no longer available at {}.",
+                audio_input.path.display()
+            ));
+        }
+
         let transcript = self
             .transcription_service
             .transcribe(
@@ -201,12 +208,17 @@ impl ClipboardSink for AppClipboardSink {
 }
 
 trait FileSystem: Send + Sync {
+    fn is_file(&self, path: &Path) -> bool;
     fn remove_file(&self, path: &Path) -> Result<(), String>;
 }
 
 struct StdFileSystem;
 
 impl FileSystem for StdFileSystem {
+    fn is_file(&self, path: &Path) -> bool {
+        local_audio_file_exists(path)
+    }
+
     fn remove_file(&self, path: &Path) -> Result<(), String> {
         match fs::remove_file(path) {
             Ok(()) => Ok(()),
@@ -217,6 +229,10 @@ impl FileSystem for StdFileSystem {
             )),
         }
     }
+}
+
+pub fn local_audio_file_exists(path: &Path) -> bool {
+    fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
 }
 
 #[derive(Clone, Debug)]
@@ -545,6 +561,53 @@ mod tests {
             .is_empty());
     }
 
+    #[test]
+    fn run_returns_error_when_local_audio_file_is_missing() {
+        let clipboard = Arc::new(FakeClipboard::default());
+        let history = Arc::new(FakeHistoryRepository::default());
+        let file_system = Arc::new(FakeFileSystem {
+            file_exists: Mutex::new(false),
+            ..Default::default()
+        });
+        let flow = manual_flow_for_tests(
+            Arc::new(FakeTranscriptionProvider::succeed_with("Transcript text")),
+            history.clone(),
+            clipboard.clone(),
+            file_system.clone(),
+        );
+
+        let error = tauri::async_runtime::block_on(flow.run(
+            AudioInput::new(PathBuf::from("missing.wav"), "audio/wav", Some(3210)),
+            ManualTranscriptionSettings {
+                default_language: None,
+                auto_copy: true,
+                save_audio_files: false,
+                save_transcription_history: true,
+            },
+        ))
+        .expect_err("manual flow should fail when the local audio file is missing");
+
+        assert_eq!(
+            error,
+            "The completed recording is no longer available at missing.wav."
+        );
+        assert!(clipboard
+            .writes
+            .lock()
+            .expect("clipboard writes lock should succeed")
+            .is_empty());
+        assert!(history
+            .saved_entries
+            .lock()
+            .expect("saved entries lock should succeed")
+            .is_empty());
+        assert!(file_system
+            .deleted_paths
+            .lock()
+            .expect("deleted paths lock should succeed")
+            .is_empty());
+    }
+
     fn manual_flow_for_tests(
         provider: Arc<dyn TranscriptionProvider>,
         history_repository: Arc<dyn HistorySink>,
@@ -641,13 +704,30 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
     struct FakeFileSystem {
+        file_exists: Mutex<bool>,
         deleted_paths: Mutex<Vec<PathBuf>>,
         delete_error: Mutex<Option<String>>,
     }
 
+    impl Default for FakeFileSystem {
+        fn default() -> Self {
+            Self {
+                file_exists: Mutex::new(true),
+                deleted_paths: Mutex::new(Vec::new()),
+                delete_error: Mutex::new(None),
+            }
+        }
+    }
+
     impl FileSystem for FakeFileSystem {
+        fn is_file(&self, _path: &Path) -> bool {
+            *self
+                .file_exists
+                .lock()
+                .expect("file_exists lock should succeed")
+        }
+
         fn remove_file(&self, path: &Path) -> Result<(), String> {
             if let Some(error) = self
                 .delete_error

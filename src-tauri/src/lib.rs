@@ -21,7 +21,8 @@ use history_repository::{
     HistoryTranscriptionSummary, NewHistoryTranscription,
 };
 use manual_flow::{
-    ManualTranscriptionFlow, ManualTranscriptionSettings, RunCompletedRecordingTranscriptionResult,
+    local_audio_file_exists, ManualTranscriptionFlow, ManualTranscriptionSettings,
+    RunCompletedRecordingTranscriptionResult,
 };
 use recorder::{
     ActiveRecordingSession, CancelledRecording, RecorderService, RecorderSnapshot,
@@ -264,6 +265,11 @@ async fn run_completed_recording_transcription(
 }
 
 #[tauri::command]
+fn has_completed_recording_audio(request: RunCompletedRecordingTranscriptionRequest) -> bool {
+    local_audio_file_exists(&request.audio_input.path)
+}
+
+#[tauri::command]
 async fn run_mock_transcription(
     app: AppHandle,
     history_database: tauri::State<'_, HistoryDatabase>,
@@ -417,6 +423,7 @@ pub fn run() {
             clear_gemini_api_key,
             run_gemini_transcription,
             run_completed_recording_transcription,
+            has_completed_recording_audio,
             run_mock_transcription
         ])
         .run(tauri::generate_context!())

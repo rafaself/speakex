@@ -34,6 +34,7 @@
     type StoppedRecording
   } from "$lib/native/recording";
   import {
+    hasCompletedRecordingAudio,
     runCompletedRecordingTranscription,
     runMockTranscription,
     type RunCompletedRecordingTranscriptionResult,
@@ -139,6 +140,7 @@
   let latestTranscript: Transcript | null = null;
   let latestManualTranscriptionResult: RunCompletedRecordingTranscriptionResult | null = null;
   let latestManualOutcomeSettings: LatestManualOutcomeSettings | null = null;
+  let latestManualTranscriptionFailure: string | null = null;
   let latestCompletedRecordingMetadata: RecordedAudioMetadata | null = null;
   let recordingDevicesState: RecordingDevicesState = "loading";
   let recordingDevicesError = "";
@@ -159,7 +161,18 @@
   $: isRunningManualTranscription = activeTranscriptionCommand === "manual";
   $: isRunningTranscription = activeTranscriptionCommand !== null;
   $: primaryMockActionLabel = isRunningMockTranscription ? "Transcribing…" : "Run mock transcription";
-  $: primaryManualActionLabel = isRunningManualTranscription ? "Transcribing…" : "Transcribe recording";
+  $: hasRecoverableManualFailure =
+    latestManualTranscriptionFailure !== null && transcribableRecordedAudio !== null;
+  $: hasUnrecoverableManualFailure =
+    latestManualTranscriptionFailure !== null &&
+    transcribableRecordedAudio === null &&
+    latestCompletedRecordingMetadata !== null;
+  $: showManualTranscriptionAction = !hasUnrecoverableManualFailure;
+  $: primaryManualActionLabel = isRunningManualTranscription
+    ? "Transcribing…"
+    : hasRecoverableManualFailure
+      ? "Retry transcription"
+      : "Transcribe recording";
   $: recordingDevicesStatusMessage =
     recordingDevicesState === "loading"
       ? "Loading available microphones from Rust…"
@@ -347,9 +360,19 @@
       ? manualTranscriptionWarnings.length === 0
         ? `Manual transcription finished. Review the clipboard, history, and audio outcomes below. ${hiddenManualNotificationCompletedMessage}`
         : `Manual transcription finished with warnings. Review the clipboard, history, and audio outcomes below. ${hiddenManualNotificationCompletedMessage}`
+      : latestManualTranscriptionFailure !== null
+        ? hasRecoverableManualFailure
+          ? geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"
+            ? "Manual transcription failed, but the completed WAV file is still available locally. Checking Settings before enabling Retry transcription…"
+            : geminiApiKeyPresenceState === "error"
+              ? "Manual transcription failed. The completed WAV file is still available locally, but SpeakEx could not verify the Gemini API key. Recheck Settings before using Retry transcription."
+              : !geminiApiKeyPresence
+                ? "Manual transcription failed. The completed WAV file is still available locally, but Retry transcription stays unavailable until you save a Gemini API key in Settings."
+                : `Manual transcription failed. The completed WAV file is still available locally, so use Retry transcription to rerun the same explicit Rust flow. ${hiddenManualNotificationFailedMessage}`
+          : `Manual transcription failed. Retry transcription is hidden because the completed WAV file is no longer available. Record again to create a new file before rerunning the explicit flow. ${hiddenManualNotificationFailedMessage}`
       : transcribableRecordedAudio === null
         ? "Complete a local recording first, then run transcription manually from this screen."
-        : geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"
+      : geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"
           ? "Checking the OS keychain before enabling Gemini transcription…"
           : geminiApiKeyPresenceState === "error"
             ? "Unable to verify the Gemini API key right now. Recheck key status in Settings before running Gemini."
@@ -358,6 +381,20 @@
               : isRunningManualTranscription
                 ? `Gemini is transcribing the current local recording in Rust. Clipboard, history, and audio cleanup follow the saved settings. ${hiddenManualNotificationPendingMessage}`
                 : `Gemini can transcribe the current completed local recording on demand through the full Rust manual flow. ${hiddenManualNotificationReadyMessage}`;
+  $: manualRecoveryGuidanceMessage =
+    latestManualTranscriptionFailure === null
+      ? null
+      : hasRecoverableManualFailure
+        ? geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"
+          ? "Retry will reuse the completed WAV file shown below as soon as SpeakEx finishes checking the Gemini key status."
+          : geminiApiKeyPresenceState === "error"
+            ? "The completed WAV file is still available locally, but Retry transcription stays blocked until Gemini key status can be checked again in Settings."
+            : !geminiApiKeyPresence
+              ? "The completed WAV file is still available locally. Save a Gemini API key in Settings, then use Retry transcription to rerun the same manual flow."
+              : "Retry transcription will reuse the completed WAV file shown below and rerun the same explicit Rust manual flow."
+        : latestCompletedRecordingMetadata
+          ? `Retry transcription is hidden because SpeakEx can no longer find the completed WAV file at ${latestCompletedRecordingMetadata.path}. Record again to create a fresh local file before transcribing.`
+          : "Retry transcription is hidden because the completed WAV file is no longer available. Record again to create a fresh local file before transcribing.";
   $: canStartRecording =
     recordingDevicesState === "ready" &&
     recordingCommandState === null &&
@@ -697,6 +734,7 @@
       activeRecordingSession = null;
       latestTranscript = null;
       latestManualTranscriptionResult = null;
+      latestManualTranscriptionFailure = null;
       const completedStatus = buildCompletedRecordingStatus(stoppedRecording);
       latestCompletedRecordingMetadata = completedStatus.recordedAudio;
       appStatus.setStatus(completedStatus);
@@ -1037,6 +1075,7 @@
     latestMockTranscriptionResult = null;
     latestManualTranscriptionResult = null;
     latestManualOutcomeSettings = null;
+    latestManualTranscriptionFailure = null;
     latestCompletedRecordingMetadata = null;
 
     try {
@@ -1077,6 +1116,7 @@
       latestMockTranscriptionResult = null;
       latestManualTranscriptionResult = null;
       latestManualOutcomeSettings = null;
+      latestManualTranscriptionFailure = null;
       const completedStatus = buildCompletedRecordingStatus(stoppedRecording);
       latestCompletedRecordingMetadata = completedStatus.recordedAudio;
       appStatus.setStatus(completedStatus);
@@ -1113,6 +1153,7 @@
       latestMockTranscriptionResult = null;
       latestManualTranscriptionResult = null;
       latestManualOutcomeSettings = null;
+      latestManualTranscriptionFailure = null;
       latestCompletedRecordingMetadata = null;
       syncIdleStatus(
         cancelled.deletedAudioPath
@@ -1146,6 +1187,7 @@
     latestMockTranscriptionResult = null;
     latestManualTranscriptionResult = null;
     latestManualOutcomeSettings = null;
+    latestManualTranscriptionFailure = null;
     latestCompletedRecordingMetadata = previousRecordedAudio;
 
     appStatus.setStatus(
@@ -1191,6 +1233,23 @@
       return;
     }
 
+    if (!(await hasCompletedRecordingAudio(transcribableRecordedAudio))) {
+      latestTranscript = null;
+      latestMockTranscriptionResult = null;
+      latestManualTranscriptionResult = null;
+      latestManualOutcomeSettings = null;
+      latestManualTranscriptionFailure = `The completed recording is no longer available at ${transcribableRecordedAudio.path}.`;
+      latestCompletedRecordingMetadata = transcribableRecordedAudio;
+      appStatus.setStatus(
+        buildMissingManualRecordingStatus(
+          transcribableRecordedAudio,
+          latestManualTranscriptionFailure,
+          `The completed WAV file is gone, so the explicit Rust manual transcription flow cannot start and Retry transcription stays hidden. Record again to create a fresh local file before transcribing. ${hiddenManualNotificationFailedMessage}`
+        )
+      );
+      return;
+    }
+
     const currentSettings = get(settingsDraft);
     const manualOutcomeSettings: LatestManualOutcomeSettings = {
       autoCopy: currentSettings.autoCopy,
@@ -1203,13 +1262,14 @@
     latestMockTranscriptionResult = null;
     latestManualTranscriptionResult = null;
     latestManualOutcomeSettings = null;
+    latestManualTranscriptionFailure = null;
 
     appStatus.setStatus(
       getAppStatusForPhase("transcribing", {
         headline: "Manual transcription is running.",
         inputLabel: transcribableRecordedAudio.inputDeviceName,
         detail:
-          "The frontend is waiting on the explicit Rust manual transcription command for the current completed WAV file. Rust will also handle clipboard, history, default audio cleanup, and any hidden-window completion or failure notifications.",
+          "The frontend is waiting on the explicit Rust manual transcription command for the current completed WAV file. Rust will also handle clipboard, history, default audio cleanup, retryable failure state, and any hidden-window completion or failure notifications.",
         transcriptTitle: "Transcript incoming…",
         transcriptPreview: `${formatFileName(transcribableRecordedAudio.path)} is being transcribed through the explicit Rust manual flow.`,
         durationLabel: formatDuration(transcribableRecordedAudio.durationMs),
@@ -1232,18 +1292,28 @@
         await loadHistoryEntries(result.historyId);
       }
     } catch (error) {
+      const manualFailureDetail =
+        error instanceof Error ? error.message : "Unable to finish the manual transcription flow.";
+      const retryableRecordedAudio = (await hasCompletedRecordingAudio(transcribableRecordedAudio))
+        ? transcribableRecordedAudio
+        : null;
+
       latestTranscript = null;
       latestMockTranscriptionResult = null;
       latestManualOutcomeSettings = null;
+      latestManualTranscriptionFailure = manualFailureDetail;
+      latestCompletedRecordingMetadata = transcribableRecordedAudio;
       appStatus.setStatus(
         getAppStatusForPhase("error", {
           inputLabel: transcribableRecordedAudio.inputDeviceName,
-          detail: error instanceof Error ? error.message : "Unable to finish the manual transcription flow.",
+          detail: manualFailureDetail,
           transcriptPreview:
-            `The explicit manual transcription command did not finish. The current recording remains local and no follow-up side effects were applied. ${hiddenManualNotificationFailedMessage}`,
+            retryableRecordedAudio === null
+              ? `The explicit manual transcription command did not finish, and the completed WAV file is no longer available for recovery. Retry transcription is hidden until you record again. ${hiddenManualNotificationFailedMessage}`
+              : `The explicit manual transcription command did not finish, but the completed WAV file remains local so you can use Retry transcription to rerun the same Rust flow. ${hiddenManualNotificationFailedMessage}`,
           durationLabel: formatDuration(transcribableRecordedAudio.durationMs),
           recordingTiming: buildRecordingTimingFromRecordedAudio(transcribableRecordedAudio),
-          recordedAudio: transcribableRecordedAudio
+          recordedAudio: retryableRecordedAudio
         })
       );
     } finally {
@@ -1259,6 +1329,7 @@
     latestMockTranscriptionResult = null;
     latestManualTranscriptionResult = null;
     latestManualOutcomeSettings = null;
+    latestManualTranscriptionFailure = null;
     latestCompletedRecordingMetadata = null;
     syncIdleStatus();
   }
@@ -1418,7 +1489,7 @@
 
     return getAppStatusForPhase("completed", {
       headline: "Mock transcript ready.",
-      detail: `${historyDetail} The result remains intentionally fake and separate from the Release 1.4 manual Gemini flow.`,
+      detail: `${historyDetail} The result remains intentionally fake and separate from the Release 1.5 manual Gemini flow.`,
       transcriptTitle: result.savedToHistory
         ? "Mock transcript saved locally"
         : "Mock transcript kept in memory only",
@@ -1472,6 +1543,22 @@
       ...recordedAudio,
       path: result.retainedAudioPath ?? recordedAudio.path
     };
+  }
+
+  function buildMissingManualRecordingStatus(
+    recordedAudio: RecordedAudioMetadata,
+    detail: string,
+    transcriptPreview: string
+  ) {
+    return getAppStatusForPhase("error", {
+      headline: "Manual transcription needs a new recording.",
+      inputLabel: recordedAudio.inputDeviceName,
+      detail,
+      transcriptPreview,
+      durationLabel: formatDuration(recordedAudio.durationMs),
+      recordingTiming: buildRecordingTimingFromRecordedAudio(recordedAudio),
+      recordedAudio: null
+    });
   }
 
   function collectOutcomeWarnings(
@@ -1776,19 +1863,19 @@
   <title>SpeakEx — Audio Recording</title>
   <meta
     name="description"
-    content="SpeakEx desktop app shell with real audio recording, manual transcription flow, hidden-window transcription notifications, history, and settings views."
+    content="SpeakEx desktop app shell with real audio recording, manual transcription retry guidance, hidden-window transcription notifications, history, and settings views."
   />
 </svelte:head>
 
 <main class="app-shell">
   <aside class="sidebar">
     <div class="brand-block">
-      <p class="eyebrow">Release 1.4</p>
+      <p class="eyebrow">Release 1.5</p>
       <h1>SpeakEx</h1>
       <p class="brand-copy">
-        Local-first transcription for the desktop. Release 1.4 keeps the manual flow intact while
-        explaining clipboard, history, audio cleanup, and hidden-window transcription notifications
-        more clearly.
+        Local-first transcription for the desktop. Release 1.5 keeps the manual flow explicit while
+        clarifying when Retry transcription can reuse the current WAV file and when a new recording
+        is required.
       </p>
     </div>
 
@@ -1841,9 +1928,9 @@
       </div>
         <p class="workspace-copy">
           {#if $activeSection === "recording"}
-          The recording workspace keeps manual transcription explicit and now explains clipboard,
-          history, audio outcomes, and hidden-window completion or failure notifications more
-          clearly after each run.
+          The recording workspace keeps manual transcription explicit and now explains retry and
+          recovery guidance alongside clipboard, history, audio outcomes, and hidden-window
+          completion or failure notifications.
         {:else if $activeSection === "history"}
           Saved transcript history loads from the local database, and the selected detail panel now
           shows the full transcript plus stored clipboard and audio outcomes.
@@ -1865,7 +1952,8 @@
             <p class:pending={recordingDevicesState === "loading"} class:success={recordingDevicesState === "ready"} class:error={recordingDevicesState === "error"}>
               {recordingDevicesStatusMessage}
             </p>
-            <p class="phase-note">Release 1.4 keeps recording explicit. Stop still only creates a completed local recording until you transcribe manually.</p>
+            <p class="phase-note">Release 1.5 keeps recording explicit. Stop still only creates a completed local recording until you transcribe manually.</p>
+            <p class="phase-note">After a manual failure, Retry transcription only stays available while the completed WAV file still exists locally.</p>
             <p class="phase-note">Desktop notifications only cover manual transcription completion or failure while SpeakEx is hidden.</p>
             <p class="phase-note"><strong>{recordingLimitLabel}</strong> · Elapsed {elapsedTimeLabel} · Remaining {remainingTimeLabel}</p>
             <p class="phase-note">{mockHistoryModeLabel}</p>
@@ -1904,14 +1992,16 @@
             >
               {primaryMockActionLabel}
             </button>
-            <button
-              type="button"
-              class="secondary-button"
-              on:click={startManualTranscription}
-              disabled={!canRunManualTranscription}
-            >
-              {primaryManualActionLabel}
-            </button>
+            {#if showManualTranscriptionAction}
+              <button
+                type="button"
+                class="secondary-button"
+                on:click={startManualTranscription}
+                disabled={!canRunManualTranscription}
+              >
+                {primaryManualActionLabel}
+              </button>
+            {/if}
             <button
               type="button"
               class="ghost-button"
@@ -1923,12 +2013,16 @@
           </div>
 
           <p
-            class:pending={(transcribableRecordedAudio === null && latestManualTranscriptionResult === null) || isRunningManualTranscription || geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"}
-            class:success={latestManualTranscriptionResult !== null || (transcribableRecordedAudio !== null && geminiApiKeyPresence && !isRunningManualTranscription && geminiApiKeyPresenceState !== "error")}
-            class:error={latestManualTranscriptionResult === null && ((transcribableRecordedAudio !== null && (!geminiApiKeyPresence || geminiApiKeyPresenceState === "error")) || geminiApiKeyActionState === "error")}
+            class:pending={(transcribableRecordedAudio === null && latestManualTranscriptionResult === null && latestManualTranscriptionFailure === null) || isRunningManualTranscription || (latestManualTranscriptionFailure === null && (geminiApiKeyPresenceState === "loading" || geminiApiKeyActionState === "checking"))}
+            class:success={latestManualTranscriptionResult !== null || (latestManualTranscriptionFailure === null && transcribableRecordedAudio !== null && geminiApiKeyPresence && !isRunningManualTranscription && geminiApiKeyPresenceState !== "error")}
+            class:error={latestManualTranscriptionFailure !== null || (latestManualTranscriptionResult === null && ((transcribableRecordedAudio !== null && (!geminiApiKeyPresence || geminiApiKeyPresenceState === "error")) || geminiApiKeyActionState === "error"))}
           >
             {manualTranscriptionStatusMessage}
           </p>
+
+          {#if manualRecoveryGuidanceMessage}
+            <p class="phase-note">{manualRecoveryGuidanceMessage}</p>
+          {/if}
         </section>
 
         <section class="card transcript-card">
