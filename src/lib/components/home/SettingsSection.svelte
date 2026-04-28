@@ -44,6 +44,8 @@
             bind:value={geminiApiKeyDraft}
             placeholder={geminiApiKeyPresence ? "••••••••••••" : "Enter API Key"}
           />
+        </div>
+        <div class="action-row">
           <button
             class="primary-pill"
             type="button"
@@ -52,8 +54,6 @@
           >
             {geminiApiKeyPrimaryActionLabel}
           </button>
-        </div>
-        <div class="action-row">
           <button class="secondary-pill" type="button" on:click={onRemoveGeminiApiKey} disabled={!canRemoveGeminiApiKey}>
             Remove saved key
           </button>
@@ -144,6 +144,8 @@
             bind:value={recordingShortcutDraft}
             placeholder="e.g. CommandOrControl+Alt+A"
           />
+        </div>
+        <div class="action-row">
           <button
             class="primary-pill"
             type="button"
@@ -152,8 +154,6 @@
           >
             {recordingShortcutPrimaryActionLabel}
           </button>
-        </div>
-        <div class="action-row">
           <button
             class="secondary-pill"
             type="button"
