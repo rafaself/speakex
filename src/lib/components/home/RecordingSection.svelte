@@ -39,69 +39,73 @@
 </script>
 
 <div class="main-content">
-  <h1>What should we write?</h1>
+  <div class="composer-stage">
+    <div class="composer-anchor">
+      <h1>What should we write?</h1>
 
-  <div class="input-container">
-    <div class="chat-input-wrapper">
-      <input type="text" class="chat-input" placeholder="Ask anything" />
-      <div class="input-actions">
-        {#if isRecordingActive}
-          <button
-            class="icon-btn destructive-btn"
-            title="Discard recording"
-            aria-label="Discard recording"
-            type="button"
-            on:click={onDiscardRecording}
-            disabled={!canDiscardRecording}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
-          <button
-            class="icon-btn confirm-btn"
-            title="Confirm recording and transcribe"
-            aria-label="Confirm recording and transcribe"
-            type="button"
-            on:click={onConfirmRecordingAndTranscribe}
-            disabled={!canConfirmRecordingAndTranscribe}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 6L9 17l-5-5" />
-            </svg>
-          </button>
-        {:else if hasTranscribableRecordedAudio}
-          <button
-            class="voice-btn"
-            type="button"
-            title={manualTranscriptionActionLabel}
-            aria-label={manualTranscriptionActionLabel}
-            on:click={onStartManualTranscription}
-            disabled={!canRunManualTranscription}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 1v22M5 8v8M19 8v8M9 11v2M15 11v2" />
-            </svg>
-            {manualTranscriptionActionLabel}
-          </button>
-        {:else}
-          <button
-            class="voice-btn"
-            type="button"
-            title="Start recording"
-            aria-label="Start recording"
-            on:click={onBeginRecording}
-            disabled={!canStartRecording}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" y1="19" x2="12" y2="23" />
-              <line x1="8" y1="23" x2="16" y2="23" />
-            </svg>
-            Start recording
-          </button>
-        {/if}
+      <div class="input-container">
+        <div class="chat-input-wrapper">
+          <input type="text" class="chat-input" placeholder="Ask anything" />
+          <div class="input-actions">
+            {#if isRecordingActive}
+              <button
+                class="icon-btn destructive-btn"
+                title="Discard recording"
+                aria-label="Discard recording"
+                type="button"
+                on:click={onDiscardRecording}
+                disabled={!canDiscardRecording}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+              <button
+                class="icon-btn confirm-btn"
+                title="Confirm recording and transcribe"
+                aria-label="Confirm recording and transcribe"
+                type="button"
+                on:click={onConfirmRecordingAndTranscribe}
+                disabled={!canConfirmRecordingAndTranscribe}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+              </button>
+            {:else if hasTranscribableRecordedAudio}
+              <button
+                class="voice-btn"
+                type="button"
+                title={manualTranscriptionActionLabel}
+                aria-label={manualTranscriptionActionLabel}
+                on:click={onStartManualTranscription}
+                disabled={!canRunManualTranscription}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 1v22M5 8v8M19 8v8M9 11v2M15 11v2" />
+                </svg>
+                {manualTranscriptionActionLabel}
+              </button>
+            {:else}
+              <button
+                class="voice-btn"
+                type="button"
+                title="Start recording"
+                aria-label="Start recording"
+                on:click={onBeginRecording}
+                disabled={!canStartRecording}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+                Start recording
+              </button>
+            {/if}
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -182,26 +186,44 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
+    min-height: 100%;
     padding: 2rem;
     text-align: center;
     overflow-y: auto;
+    box-sizing: border-box;
+  }
+
+  .composer-stage {
+    width: 100%;
+    flex: 1 0 auto;
+    display: grid;
+    place-items: center;
+  }
+
+  .composer-anchor {
+    position: relative;
+    width: min(100%, 768px);
   }
 
   .main-content h1 {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 0.875rem);
+    transform: translateX(-50%);
     font-size: 2.25rem;
     font-weight: 600;
-    margin-bottom: 1.5rem;
+    margin: 0;
     color: #fff;
     font-family: Georgia, "Times New Roman", serif;
     font-style: italic;
+    width: max-content;
+    max-width: 100%;
   }
 
   .input-container {
     width: 100%;
-    max-width: 768px;
     position: relative;
-    margin-bottom: 1rem;
   }
 
   .chat-input-wrapper {
@@ -293,7 +315,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    margin-top: 1rem;
+    margin-top: 1.25rem;
     width: min(100%, 600px);
   }
 
