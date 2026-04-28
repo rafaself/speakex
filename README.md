@@ -16,6 +16,8 @@ The current MVP lets you record audio from the main window, tray, or global shor
 
 - `npm run dev` — start the frontend dev server
 - `npm run tauri dev` — run the desktop app in development; on Linux hosts this automatically uses the `speakex-dev` Toolbox container
+- `npm run test` — run the unit and integration test suite
+- `npm run coverage` — run the test suite with coverage reporting
 - `npm run check` — run the Svelte/TypeScript checks
 - `npm run build` — build the frontend bundle
 - `npm run tauri build` — build the desktop application; on Linux hosts this automatically uses the `speakex-dev` Toolbox container
