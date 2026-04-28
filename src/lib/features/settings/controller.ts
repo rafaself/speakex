@@ -198,16 +198,14 @@ export function createSettingsController(context: SettingsControllerContext) {
     }
   }
 
-  function updateLanguage(event: Event) {
+  function updateLanguage(defaultLanguage: string) {
     void persistSettings({
       ...context.getSettingsDraft(),
-      defaultLanguage: (event.currentTarget as HTMLSelectElement).value
+      defaultLanguage
     });
   }
 
-  function updateMicrophone(event: Event) {
-    const selectedMicrophone = (event.currentTarget as HTMLSelectElement).value;
-
+  function updateMicrophone(selectedMicrophone: string) {
     context.setRecordingInputOptions(context.getAvailableRecordingDevices(), selectedMicrophone);
 
     void persistSettings({

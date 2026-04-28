@@ -1,4 +1,5 @@
 <script lang="ts">
+  import MenuList from "$lib/components/ui/MenuList.svelte";
   import type { RecordingInputOption, SettingsDraft } from "$lib/types/app-shell";
   import type { DraftToggleKey } from "$lib/stores/app-shell";
 
@@ -21,12 +22,23 @@
   export let canClearRecordingShortcut = false;
   export let onSubmitGeminiApiKey: () => void;
   export let onRemoveGeminiApiKey: () => void;
-  export let onUpdateMicrophone: (event: Event) => void;
-  export let onUpdateLanguage: (event: Event) => void;
+  export let onUpdateMicrophone: (value: string) => void;
+  export let onUpdateLanguage: (value: string) => void;
   export let onToggleSetting: (key: DraftToggleKey) => void;
   export let onSubmitRecordingShortcut: () => void;
   export let onReapplyRecordingShortcut: () => void;
   export let onClearRecordingShortcut: () => void;
+
+  $: microphoneMenuOptions = recordingInputOptions.map((option) => ({
+    value: option.value,
+    label: option.label,
+    disabled: option.unavailable ?? false
+  }));
+
+  $: languageMenuOptions = languageOptions.map((option) => ({
+    value: option.value,
+    label: option.label
+  }));
 </script>
 
 <div class="main-content settings-layout">
@@ -81,21 +93,23 @@
 
       <section class="settings-section">
         <h3>Microphone</h3>
-        <select class="settings-select" value={settingsDraft.selectedMicrophone} on:change={onUpdateMicrophone}>
-          {#each recordingInputOptions as option}
-            <option value={option.value}>{option.label}</option>
-          {/each}
-        </select>
+        <MenuList
+          label="Microphone"
+          value={settingsDraft.selectedMicrophone}
+          options={microphoneMenuOptions}
+          onSelect={onUpdateMicrophone}
+        />
         <p class="status-copy muted-copy">{recordingDevicesStatusMessage}</p>
       </section>
 
       <section class="settings-section">
         <h3>Language</h3>
-        <select class="settings-select" value={settingsDraft.defaultLanguage} on:change={onUpdateLanguage}>
-          {#each languageOptions as option}
-            <option value={option.value}>{option.label}</option>
-          {/each}
-        </select>
+        <MenuList
+          label="Language"
+          value={settingsDraft.defaultLanguage}
+          options={languageMenuOptions}
+          onSelect={onUpdateLanguage}
+        />
       </section>
 
       <section class="settings-section preferences">
@@ -369,34 +383,6 @@
   .secondary-pill:disabled {
     opacity: 0.45;
     cursor: not-allowed;
-  }
-
-  .settings-select {
-    width: 100%;
-    appearance: none;
-    -webkit-appearance: none;
-    background-color: #2f2f2f;
-    background-image:
-      linear-gradient(45deg, transparent 50%, #b4b4b4 50%),
-      linear-gradient(135deg, #b4b4b4 50%, transparent 50%);
-    background-position:
-      calc(100% - 1.15rem) calc(50% - 0.12rem),
-      calc(100% - 0.8rem) calc(50% - 0.12rem);
-    background-size:
-      0.4rem 0.4rem,
-      0.4rem 0.4rem;
-    background-repeat: no-repeat;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #fff;
-    color-scheme: dark;
-    padding: 0.75rem 2.75rem 0.75rem 0.75rem;
-    border-radius: 12px;
-    outline: none;
-  }
-
-  .settings-select option {
-    background: #2f2f2f;
-    color: #fff;
   }
 
   .preferences {

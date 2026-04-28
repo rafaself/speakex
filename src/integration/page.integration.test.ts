@@ -301,6 +301,18 @@ describe("+page integration", () => {
 
     expect(screen.getByLabelText("Gemini API key saved")).toBeTruthy();
 
+    await user.click(screen.getByRole("button", { name: "Language" }));
+    await user.click(screen.getByRole("option", { name: "Português (Brasil)" }));
+
+    const updatedSettings = {
+      ...persistedSettings,
+      defaultLanguage: "pt-BR"
+    };
+
+    await waitFor(() => {
+      expect(settingsMocks.saveAppSettings).toHaveBeenCalledWith(updatedSettings);
+    });
+
     const apiKeyInput = await screen.findByPlaceholderText("••••••••••••");
     await user.type(apiKeyInput, "api-key-123");
     await user.click(screen.getByRole("button", { name: "Replace saved key" }));
@@ -316,7 +328,7 @@ describe("+page integration", () => {
 
     await waitFor(() => {
       expect(settingsMocks.saveAppSettings).toHaveBeenCalledWith({
-        ...persistedSettings,
+        ...updatedSettings,
         shortcut: "CommandOrControl+Alt+A"
       });
     });
@@ -326,7 +338,7 @@ describe("+page integration", () => {
 
     await waitFor(() => {
       expect(settingsMocks.saveAppSettings).toHaveBeenCalledWith({
-        ...persistedSettings,
+        ...updatedSettings,
         saveAudioFiles: true
       });
     });
@@ -341,7 +353,7 @@ describe("+page integration", () => {
 
     await waitFor(() => {
       expect(settingsMocks.saveAppSettings).toHaveBeenCalledWith({
-        ...persistedSettings,
+        ...updatedSettings,
         saveAudioFiles: true,
         shortcut: null
       });

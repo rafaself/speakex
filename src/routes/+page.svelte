@@ -341,12 +341,12 @@
     await historyController.clearAllHistory();
   }
 
-  function updateLanguage(event: Event) {
-    settingsController.updateLanguage(event);
+  function updateLanguage(value: string) {
+    settingsController.updateLanguage(value);
   }
 
-  function updateMicrophone(event: Event) {
-    settingsController.updateMicrophone(event);
+  function updateMicrophone(value: string) {
+    settingsController.updateMicrophone(value);
   }
 
   function toggleSetting(key: DraftToggleKey) {
