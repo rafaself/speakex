@@ -2,7 +2,7 @@
   "name": "speakex",
   "version": "0.1.0",
   "private": true,
-  "description": "Local-first desktop transcription app scaffold built with Tauri v2, Svelte, and TypeScript.",
+  "description": "Local-first desktop transcription app for recording audio, transcribing it with Gemini, and keeping local history.",
   "type": "module",
   "scripts": {
     "dev": "vite dev",

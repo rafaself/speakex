@@ -1,6 +1,16 @@
 # SpeakEx
 
-Release 0.1 bootstrap for a local-first desktop transcription app built with Tauri v2, SvelteKit, and TypeScript.
+SpeakEx is a local-first desktop transcription app built with Tauri v2, SvelteKit, TypeScript, and Rust.
+
+The current MVP lets you record audio from the main window, tray, or global shortcut, send completed recordings to Gemini for transcription, automatically copy results to the clipboard, and keep a local transcription history on your machine.
+
+## MVP highlights
+
+- Local-first desktop workflow with no separate backend service
+- Manual recording controls in the app, tray, and through a global shortcut
+- Gemini-powered transcription for completed recordings
+- Local history, clipboard copy, and settings for retention behavior
+- Privacy-aware hidden-window notifications for transcription outcomes
 
 ## Scripts
 
@@ -10,7 +20,7 @@ Release 0.1 bootstrap for a local-first desktop transcription app built with Tau
 - `npm run build` — build the frontend bundle
 - `npm run tauri build` — build the desktop application
 
-## Cross-platform validation (Release 1.8)
+## Cross-platform validation
 
 SpeakEx now includes a GitHub Actions workflow at `.github/workflows/cross-platform-validation.yml` that validates the existing desktop build surface on:
 
@@ -31,7 +41,7 @@ On every push and pull request, the workflow runs:
 
 This validates that the frontend, Rust backend, and Tauri desktop app still compile across Linux, macOS, and Windows without requiring platform-specific release bundling in CI.
 
-## Linux packaging (Release 1.7)
+## Linux packaging
 
 SpeakEx is currently configured for a Linux-first AppImage packaging path.
 
@@ -45,8 +55,8 @@ In this Fedora 43 packaging environment, the build reaches the AppImage bundling
 
 - `unknown type [0x13] section '.relr.dyn'`
 
-This is an environment-specific Linux AppImage bundling incompatibility in the current packaging toolchain, not a SpeakEx runtime failure and not evidence of a macOS or Windows build problem. The Release 1.8 cross-platform workflow avoids this known packaging-only issue by validating `npm run tauri build -- --debug --no-bundle` instead of installer or AppImage bundling.
+This is an environment-specific Linux AppImage bundling incompatibility in the current packaging toolchain, not a SpeakEx runtime failure and not evidence of a macOS or Windows build problem. The cross-platform workflow avoids this known packaging-only issue by validating `npm run tauri build -- --debug --no-bundle` instead of installer or AppImage bundling.
 
 ## Notes
 
-This scaffold keeps the native surface area minimal. The app currently exposes a single explicit Rust `ping` command so the frontend can verify the Tauri bridge before any transcription features are added.
+SpeakEx is currently packaged and validated as a desktop MVP with a Linux-first release path and cross-platform no-bundle CI checks. Detailed transcription state, settings, and history stay on the local machine, while Gemini is the current transcription provider for completed recordings.
