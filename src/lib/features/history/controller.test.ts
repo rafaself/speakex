@@ -98,7 +98,8 @@ function createControllerHarness() {
       state.selectedHistoryEntry = value;
     },
     getSelectedHistoryEntry: () => state.selectedHistoryEntry,
-    mapHistoryEntry: (entry) => createViewModel(entry.id, entry.text)
+    mapHistoryEntry: (entry) => createViewModel(entry.id, entry.text),
+    reportErrorLog: vi.fn().mockResolvedValue(undefined)
   });
 
   return { controller, state };

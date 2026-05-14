@@ -5,9 +5,11 @@
 
   import Sidebar from "$lib/components/app-shell/Sidebar.svelte";
   import HistorySection from "$lib/components/home/HistorySection.svelte";
+  import LogsSection from "$lib/components/home/LogsSection.svelte";
   import RecordingSection from "$lib/components/home/RecordingSection.svelte";
   import SettingsSection from "$lib/components/home/SettingsSection.svelte";
   import { createHistoryController } from "$lib/features/history/controller";
+  import { createLogsController } from "$lib/features/logs/controller";
   import { mapHistoryEntry } from "$lib/features/history/presenters";
   import type { HistoryEntryViewModel } from "$lib/features/history/types";
   import {
@@ -16,6 +18,7 @@
   } from "$lib/features/recording/controller";
   import { createSettingsController } from "$lib/features/settings/controller";
   import { type HistoryTranscription } from "$lib/native/history";
+  import { createErrorLog, type ErrorLogEntry } from "$lib/native/logs";
   import { type RecordingShortcutStatus } from "$lib/native/shortcut";
   import {
     type ActiveRecordingSession,
@@ -48,6 +51,7 @@
   type SettingsState = "idle" | "loading" | "saving" | "error";
   type HistoryState = "loading" | "ready" | "error";
   type HistoryDetailState = "idle" | "loading" | "ready" | "error";
+  type LogsState = "loading" | "ready" | "error";
   type RecordingDevicesState = "loading" | "ready" | "error";
   type RecordingCommandState = "starting" | "stopping" | "cancelling" | null;
   type ShortcutActionState = "idle" | "loading" | "applying" | "reapplying" | "clearing" | "error";
@@ -80,6 +84,10 @@
   let isClearingHistory = false;
   let selectedHistoryEntryId: string | null = null;
   let selectedHistoryEntry: HistoryTranscription | null = null;
+  let logsState: LogsState = "loading";
+  let logsEntries: ErrorLogEntry[] = [];
+  let logsError = "";
+  let isClearingLogs = false;
   let activeTranscriptionCommand: TranscriptionCommandState = null;
   let latestTranscript: Transcript | null = null;
   let latestManualTranscriptionResult: RunCompletedRecordingTranscriptionResult | null = null;
@@ -282,7 +290,8 @@
     setRecordingShortcutError: (value) => {
       recordingShortcutError = value;
     },
-    canClearRecordingShortcut: () => canClearRecordingShortcut
+    canClearRecordingShortcut: () => canClearRecordingShortcut,
+    reportErrorLog
   });
 
   async function hydrateSettings() {
@@ -332,7 +341,25 @@
       selectedHistoryEntry = entry;
     },
     getSelectedHistoryEntry: () => selectedHistoryEntry,
-    mapHistoryEntry
+    mapHistoryEntry,
+    reportErrorLog
+  });
+
+  const logsController = createLogsController({
+    setLogsState: (state) => {
+      logsState = state;
+    },
+    setLogsEntries: (entries) => {
+      logsEntries = entries;
+    },
+    getLogsEntries: () => logsEntries,
+    setLogsError: (message) => {
+      logsError = message;
+    },
+    setIsClearingLogs: (value) => {
+      isClearingLogs = value;
+    },
+    getIsClearingLogs: () => isClearingLogs
   });
 
   async function selectHistoryEntry(id: string) {
@@ -349,6 +376,35 @@
 
   async function clearAllHistory() {
     await historyController.clearAllHistory();
+  }
+
+  async function loadErrorLogs() {
+    await logsController.loadErrorLogs();
+  }
+
+  async function clearAllErrorLogs() {
+    await logsController.clearAllErrorLogs();
+  }
+
+  async function reportErrorLog(entry: { scope: string; summary: string; detail: string }) {
+    const detail = entry.detail.trim();
+
+    if (detail === "") {
+      return;
+    }
+
+    try {
+      await createErrorLog({
+        ...entry,
+        source: "frontend"
+      });
+
+      if (get(activeSection) === "logs") {
+        await loadErrorLogs();
+      }
+    } catch {
+      // Error logging should not break the main user workflow.
+    }
   }
 
   function updateLanguage(value: string) {
@@ -455,6 +511,10 @@
 
   function showSection(section: AppSection) {
     activeSection.set(section);
+
+    if (section === "logs") {
+      void loadErrorLogs();
+    }
   }
 
   function resetWorkspaceView() {
@@ -608,7 +668,8 @@
     formatDuration,
     formatFileName,
     hiddenManualNotificationCompletedMessage,
-    hiddenManualNotificationFailedMessage
+    hiddenManualNotificationFailedMessage,
+    reportErrorLog
   });
 
   async function beginRecording() {
@@ -787,6 +848,14 @@
         onClearAllHistory={clearAllHistory}
         onSelectHistoryEntry={selectHistoryEntry}
         onRemoveHistoryEntry={removeHistoryEntry}
+      />
+    {:else if $activeSection === "logs"}
+      <LogsSection
+        {logsState}
+        {logsError}
+        {logsEntries}
+        {isClearingLogs}
+        onClearAllLogs={clearAllErrorLogs}
       />
     {:else if $activeSection === "settings"}
       <SettingsSection

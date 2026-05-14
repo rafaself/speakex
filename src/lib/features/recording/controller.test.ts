@@ -34,6 +34,7 @@ vi.mock("$lib/native/transcription", () => ({
 import { createRecordingController } from "./controller";
 
 function createControllerHarness() {
+  const reportErrorLog = vi.fn().mockResolvedValue(undefined);
   const state = {
     settingsDraft: createDefaultAppSettings(),
     availableRecordingDevices: [] as Array<{ name: string; label: string; isDefault: boolean }>,
@@ -148,10 +149,11 @@ function createControllerHarness() {
     formatDuration: (durationMs) => (durationMs === null ? "—" : `${durationMs}ms`),
     formatFileName: (path) => path.split("/").pop() ?? path,
     hiddenManualNotificationCompletedMessage: "Completed notification.",
-    hiddenManualNotificationFailedMessage: "Failed notification."
+    hiddenManualNotificationFailedMessage: "Failed notification.",
+    reportErrorLog
   });
 
-  return { controller, state };
+  return { controller, state, reportErrorLog };
 }
 
 describe("createRecordingController", () => {
@@ -257,7 +259,8 @@ describe("createRecordingController", () => {
       formatDuration: (value) => String(value ?? "—"),
       formatFileName: (path) => path,
       hiddenManualNotificationCompletedMessage: "Completed notification.",
-      hiddenManualNotificationFailedMessage: "Failed notification."
+      hiddenManualNotificationFailedMessage: "Failed notification.",
+      reportErrorLog: vi.fn().mockResolvedValue(undefined)
     });
 
     await controller.beginRecording();
@@ -410,6 +413,43 @@ describe("createRecordingController", () => {
         'Gemini transcription failed: Gemini transcription request failed: Gemini API returned 400 Bad Request ({"error":{"message":"Bad request"}})',
       transcriptPreview:
         "Transcription did not finish: Gemini transcription request failed: Gemini API returned 400 Bad Request. The recorded audio file remains local, so you can use Retry transcription to try the same recording again. Failed notification."
+    });
+  });
+
+  it("keeps request failure details when transcription rejects with a string and logs a specific summary", async () => {
+    const requestFailure =
+      'Gemini transcription failed: Gemini transcription request failed: Gemini API returned 429 Too Many Requests ({"error":{"message":"Quota exceeded"}})';
+
+    transcriptionMocks.hasCompletedRecordingAudio.mockResolvedValue(true);
+    transcriptionMocks.runCompletedRecordingTranscription.mockRejectedValue(requestFailure);
+
+    const { controller, state, reportErrorLog } = createControllerHarness();
+    state.transcribableRecordedAudio = {
+      sessionId: "session-1",
+      path: "/tmp/session-1.wav",
+      mimeType: "audio/wav",
+      durationMs: 42_000,
+      inputDeviceName: "USB Mic",
+      sampleRateHz: 48_000,
+      channels: 2,
+      fileSizeBytes: 128_000,
+      limitReached: false,
+      maxDurationMs: 900_000
+    };
+
+    await controller.startManualTranscription();
+
+    expect(state.latestManualTranscriptionFailure).toBe(requestFailure);
+    expect(state.appStatus).toMatchObject({
+      phase: "error",
+      detail: requestFailure,
+      transcriptPreview:
+        "Transcription did not finish: Gemini transcription request failed: Gemini API returned 429 Too Many Requests. The recorded audio file remains local, so you can use Retry transcription to try the same recording again. Failed notification."
+    });
+    expect(reportErrorLog).toHaveBeenCalledWith({
+      scope: "transcription",
+      summary: "Gemini transcription request failed: Gemini API returned 429 Too Many Requests.",
+      detail: requestFailure
     });
   });
 

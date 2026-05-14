@@ -32,6 +32,26 @@ import {
 const recordingStatusPollIntervalMs = 1000;
 const recordingDevicesPollIntervalMs = 3000;
 
+function extractErrorDetail(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim() !== "") {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.trim() !== "") {
+    return error.trim();
+  }
+
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = error.message;
+
+    if (typeof message === "string" && message.trim() !== "") {
+      return message.trim();
+    }
+  }
+
+  return fallback;
+}
+
 function summarizeTranscriptionFailure(detail: string): string {
   const normalized = detail.replace(/\s+/gu, " ").trim();
 
@@ -121,12 +141,21 @@ interface RecordingControllerContext {
   formatFileName: (path: string) => string;
   hiddenManualNotificationCompletedMessage: string;
   hiddenManualNotificationFailedMessage: string;
+  reportErrorLog: (entry: { scope: string; summary: string; detail: string }) => Promise<void>;
 }
 
 export function createRecordingController(context: RecordingControllerContext) {
   let recordingStatusPoller: number | null = null;
   let recordingDevicesPoller: number | null = null;
   let isRefreshingRecordingStatus = false;
+
+  function reportRecordingError(scope: string, summary: string, detail: string) {
+    void context.reportErrorLog({
+      scope,
+      summary,
+      detail
+    });
+  }
 
   function areRecordingDevicesEqual(
     currentDevices: RecordingInputDevice[],
@@ -216,12 +245,13 @@ export function createRecordingController(context: RecordingControllerContext) {
         return;
       }
 
+      const detail = error instanceof Error ? error.message : "Unable to load recording input devices";
+
       context.setAvailableRecordingDevices([]);
-      context.setRecordingDevicesError(
-        error instanceof Error ? error.message : "Unable to load recording input devices"
-      );
+      context.setRecordingDevicesError(detail);
       context.setRecordingInputOptions([], context.getSettingsDraft().selectedMicrophone);
       context.setRecordingDevicesState("error");
+      reportRecordingError("recording", "Recording devices could not be loaded.", detail);
     }
 
     if (context.getActiveRecordingSession() === null && context.getAppStatusPhase() === "idle") {
@@ -267,6 +297,7 @@ export function createRecordingController(context: RecordingControllerContext) {
             recordedAudio: context.getRecordedAudio()
           })
         );
+        reportRecordingError("recording", "Recording status could not be refreshed.", detail);
       }
     } finally {
       isRefreshingRecordingStatus = false;
@@ -373,6 +404,7 @@ export function createRecordingController(context: RecordingControllerContext) {
           recordedAudio: null
         })
       );
+      reportRecordingError("recording", "Completed recording metadata could not be finalized.", detail);
     } finally {
       context.setRecordingCommandState(null);
     }
@@ -381,16 +413,18 @@ export function createRecordingController(context: RecordingControllerContext) {
   async function beginRecording() {
     if (!context.getCanStartRecording()) {
       if (context.getSelectedMicrophoneUnavailable()) {
+        const detail =
+          "The saved microphone is unavailable. Choose one of the loaded inputs before starting a recording.";
         context.setAppStatus(
           getAppStatusForPhase("error", {
-            detail:
-              "The saved microphone is unavailable. Choose one of the loaded inputs before starting a recording.",
+            detail,
             transcriptPreview:
               "The recorder was not started because the current microphone selection does not match any available device.",
             inputLabel: context.getSelectedMicrophoneLabel(),
             recordedAudio: null
           })
         );
+        reportRecordingError("recording", "Recording could not start with the selected microphone.", detail);
       }
 
       return;
@@ -424,6 +458,7 @@ export function createRecordingController(context: RecordingControllerContext) {
           recordedAudio: null
         })
       );
+      reportRecordingError("recording", "Recording could not start.", detail);
     } finally {
       context.setRecordingCommandState(null);
     }
@@ -469,6 +504,7 @@ export function createRecordingController(context: RecordingControllerContext) {
           recordedAudio: null
         })
       );
+      reportRecordingError("recording", "Recording could not be cancelled.", detail);
     } finally {
       context.setRecordingCommandState(null);
     }
@@ -488,6 +524,7 @@ export function createRecordingController(context: RecordingControllerContext) {
           formatDuration: context.formatDuration
         })
       );
+      reportRecordingError("transcription", "Recorded audio file is no longer available for transcription.", detail);
       return;
     }
 
@@ -533,8 +570,10 @@ export function createRecordingController(context: RecordingControllerContext) {
         await context.loadHistoryEntries(result.historyId);
       }
     } catch (error) {
-      const manualFailureDetail =
-        error instanceof Error ? error.message : "Unable to finish the transcription flow.";
+      const manualFailureDetail = extractErrorDetail(
+        error,
+        "Unable to finish the transcription flow."
+      );
       const manualFailureSummary = summarizeTranscriptionFailure(manualFailureDetail);
       const retryableRecordedAudio = (await hasCompletedRecordingAudio(recordedAudio))
         ? recordedAudio
@@ -557,6 +596,7 @@ export function createRecordingController(context: RecordingControllerContext) {
           recordedAudio: retryableRecordedAudio
         })
       );
+      reportRecordingError("transcription", manualFailureSummary, manualFailureDetail);
     } finally {
       context.setActiveTranscriptionCommand(null);
     }
@@ -605,6 +645,7 @@ export function createRecordingController(context: RecordingControllerContext) {
           recordedAudio: null
         })
       );
+      reportRecordingError("recording", "Recording could not be finished before transcription.", detail);
     } finally {
       context.setRecordingCommandState(null);
     }

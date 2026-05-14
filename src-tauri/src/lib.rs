@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use history_database::HistoryDatabase;
 use history_repository::{
-    ClearHistoryResult, DeleteTranscriptionResult, HistoryRepository, HistoryTranscription,
-    HistoryTranscriptionSummary,
+    ClearErrorLogsResult, ClearHistoryResult, DeleteTranscriptionResult, ErrorLogEntry,
+    HistoryRepository, HistoryTranscription, HistoryTranscriptionSummary, NewErrorLog,
 };
 use manual_flow::{
     local_audio_file_exists, ManualTranscriptionFlow, ManualTranscriptionSettings,
@@ -67,6 +67,42 @@ fn clear_history(
     history_database: tauri::State<'_, HistoryDatabase>,
 ) -> Result<ClearHistoryResult, String> {
     HistoryRepository::new(history_database.inner().clone()).clear_history()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateErrorLogRequest {
+    scope: String,
+    source: String,
+    summary: String,
+    detail: String,
+}
+
+#[tauri::command]
+fn get_error_logs(
+    history_database: tauri::State<'_, HistoryDatabase>,
+) -> Result<Vec<ErrorLogEntry>, String> {
+    HistoryRepository::new(history_database.inner().clone()).get_error_logs()
+}
+
+#[tauri::command]
+fn clear_error_logs(
+    history_database: tauri::State<'_, HistoryDatabase>,
+) -> Result<ClearErrorLogsResult, String> {
+    HistoryRepository::new(history_database.inner().clone()).clear_error_logs()
+}
+
+#[tauri::command]
+fn create_error_log(
+    request: CreateErrorLogRequest,
+    history_database: tauri::State<'_, HistoryDatabase>,
+) -> Result<(), String> {
+    HistoryRepository::new(history_database.inner().clone()).save_error_log(&NewErrorLog {
+        scope: request.scope,
+        source: request.source,
+        summary: request.summary,
+        detail: request.detail,
+    })
 }
 
 #[tauri::command]
@@ -328,6 +364,9 @@ pub fn run() {
             get_transcription,
             delete_transcription,
             clear_history,
+            get_error_logs,
+            clear_error_logs,
+            create_error_log,
             list_recording_input_devices,
             start_recording,
             get_recording_status,

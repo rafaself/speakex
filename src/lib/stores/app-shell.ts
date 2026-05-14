@@ -32,6 +32,11 @@ export const navigationSections: NavigationSection[] = [
     blurb: "Saved transcripts and outcomes"
   },
   {
+    id: "logs",
+    label: "Logs",
+    blurb: "Persisted application errors"
+  },
+  {
     id: "settings",
     label: "Settings",
     blurb: "Provider and app preferences"

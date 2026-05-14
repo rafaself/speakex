@@ -14,6 +14,11 @@ impl HistoryDatabase {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    #[cfg(test)]
+    pub fn from_path(path: PathBuf) -> Self {
+        Self { path }
+    }
 }
 
 struct Migration {
@@ -21,9 +26,12 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 1] = [Migration {
+const MIGRATIONS: [Migration; 2] = [Migration {
     version: 1,
     sql: include_str!("../migrations/0001_create_transcriptions.sql"),
+}, Migration {
+    version: 2,
+    sql: include_str!("../migrations/0002_create_error_logs.sql"),
 }];
 
 pub fn initialize(app: &AppHandle) -> Result<HistoryDatabase, String> {

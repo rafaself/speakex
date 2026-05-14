@@ -119,7 +119,8 @@ function createControllerHarness() {
     setRecordingShortcutError: (value) => {
       state.recordingShortcutError = value;
     },
-    canClearRecordingShortcut: () => state.canClearRecordingShortcut
+    canClearRecordingShortcut: () => state.canClearRecordingShortcut,
+    reportErrorLog: vi.fn().mockResolvedValue(undefined)
   });
 
   return { controller, state };

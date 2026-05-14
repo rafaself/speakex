@@ -45,6 +45,7 @@ interface SettingsControllerContext {
   ) => void;
   setRecordingShortcutError: (value: string) => void;
   canClearRecordingShortcut: () => boolean;
+  reportErrorLog: (entry: { scope: string; summary: string; detail: string }) => Promise<void>;
 }
 
 function summarizeGeminiApiKeyFailure(detail: string, action: "check" | "save" | "clear") {
@@ -79,6 +80,14 @@ export function createSettingsController(context: SettingsControllerContext) {
   let settingsSaveQueue = Promise.resolve();
   let latestSettingsRequest = 0;
 
+  function reportSettingsError(summary: string, detail: string) {
+    void context.reportErrorLog({
+      scope: "settings",
+      summary,
+      detail
+    });
+  }
+
   async function hydrateSettings() {
     context.setSettingsState("loading");
     context.setSettingsError("");
@@ -91,10 +100,10 @@ export function createSettingsController(context: SettingsControllerContext) {
       context.setRecordingShortcutDraft(persistedSettings.shortcut ?? "");
       context.setSettingsState("idle");
     } catch (error) {
-      context.setSettingsError(
-        error instanceof Error ? error.message : "Unable to load saved preferences"
-      );
+      const detail = error instanceof Error ? error.message : "Unable to load saved preferences";
+      context.setSettingsError(detail);
       context.setSettingsState("error");
+      reportSettingsError("Saved preferences could not be loaded.", detail);
     }
   }
 
@@ -151,6 +160,7 @@ export function createSettingsController(context: SettingsControllerContext) {
 
       context.setSettingsError(resolvedError.message);
       context.setSettingsState("error");
+      reportSettingsError("Preferences could not be saved.", resolvedError.message);
 
       if (lastSavedSettings) {
         context.patchSettingsDraft(lastSavedSettings);
@@ -185,10 +195,11 @@ export function createSettingsController(context: SettingsControllerContext) {
       context.setRecordingShortcutStatus(await getRecordingShortcutStatus());
       context.setRecordingShortcutActionState("idle");
     } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unable to load the recording shortcut status.";
       context.setRecordingShortcutActionState("error");
-      context.setRecordingShortcutError(
-        error instanceof Error ? error.message : "Unable to load the recording shortcut status."
-      );
+      context.setRecordingShortcutError(detail);
+      reportSettingsError("Recording shortcut status could not be loaded.", detail);
     }
   }
 
@@ -223,6 +234,7 @@ export function createSettingsController(context: SettingsControllerContext) {
       context.setGeminiApiKeyPresenceState("error");
       context.setGeminiApiKeyActionState("error");
       context.setGeminiApiKeyStatusDetail(summarizeGeminiApiKeyFailure(detail, "check"));
+      reportSettingsError("Gemini API key status could not be checked.", detail);
     }
   }
 
@@ -272,14 +284,20 @@ export function createSettingsController(context: SettingsControllerContext) {
       context.setRecordingShortcutStatus(await applyRecordingShortcut(savedShortcut));
       context.setRecordingShortcutActionState("idle");
     } catch (error) {
-      context.setRecordingShortcutDraft(context.getSettingsDraft().shortcut ?? "");
-      context.setRecordingShortcutActionState("error");
-      context.setRecordingShortcutError(
+      const detail =
         error instanceof Error
           ? error.message
           : action === "clearing"
             ? "Unable to clear the saved recording shortcut."
-            : "Unable to save and apply the recording shortcut."
+            : "Unable to save and apply the recording shortcut.";
+      context.setRecordingShortcutDraft(context.getSettingsDraft().shortcut ?? "");
+      context.setRecordingShortcutActionState("error");
+      context.setRecordingShortcutError(detail);
+      reportSettingsError(
+        action === "clearing"
+          ? "Recording shortcut could not be cleared."
+          : "Recording shortcut could not be saved and applied.",
+        detail
       );
     }
   }
@@ -317,12 +335,13 @@ export function createSettingsController(context: SettingsControllerContext) {
       context.setRecordingShortcutDraft(savedShortcut);
       context.setRecordingShortcutActionState("idle");
     } catch (error) {
-      context.setRecordingShortcutActionState("error");
-      context.setRecordingShortcutError(
+      const detail =
         error instanceof Error
           ? error.message
-          : "Unable to re-apply the saved recording shortcut."
-      );
+          : "Unable to re-apply the saved recording shortcut.";
+      context.setRecordingShortcutActionState("error");
+      context.setRecordingShortcutError(detail);
+      reportSettingsError("Recording shortcut could not be re-applied.", detail);
     }
   }
 
@@ -365,6 +384,7 @@ export function createSettingsController(context: SettingsControllerContext) {
         context.getGeminiApiKeyPresence() ? "present" : "missing"
       );
       context.setGeminiApiKeyStatusDetail(summarizeGeminiApiKeyFailure(detail, "save"));
+      reportSettingsError("Gemini API key could not be saved.", detail);
     }
   }
 
@@ -401,6 +421,7 @@ export function createSettingsController(context: SettingsControllerContext) {
         context.getGeminiApiKeyPresence() ? "present" : "missing"
       );
       context.setGeminiApiKeyStatusDetail(summarizeGeminiApiKeyFailure(detail, "clear"));
+      reportSettingsError("Gemini API key could not be cleared.", detail);
     }
   }
 

@@ -1,6 +1,7 @@
 use crate::history_database::HistoryDatabase;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug)]
 pub struct HistoryRepository {
@@ -50,6 +51,23 @@ pub struct ClearHistoryResult {
     pub deleted_count: usize,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorLogEntry {
+    pub id: String,
+    pub scope: String,
+    pub source: String,
+    pub summary: String,
+    pub detail: String,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearErrorLogsResult {
+    pub deleted_count: usize,
+}
+
 #[derive(Clone, Debug)]
 pub struct NewHistoryTranscription {
     pub id: String,
@@ -62,6 +80,14 @@ pub struct NewHistoryTranscription {
     pub audio_deleted: bool,
     pub copied_to_clipboard: bool,
     pub error: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NewErrorLog {
+    pub scope: String,
+    pub source: String,
+    pub summary: String,
+    pub detail: String,
 }
 
 impl HistoryRepository {
@@ -146,6 +172,39 @@ impl HistoryRepository {
         Ok(ClearHistoryResult { deleted_count })
     }
 
+    pub fn get_error_logs(&self) -> Result<Vec<ErrorLogEntry>, String> {
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT
+                    id,
+                    scope,
+                    source,
+                    summary,
+                    detail,
+                    created_at
+                 FROM error_logs
+                 ORDER BY created_at DESC, id DESC",
+            )
+            .map_err(|error| format!("failed to prepare error log list query: {error}"))?;
+
+        let rows = statement
+            .query_map([], map_error_log)
+            .map_err(|error| format!("failed to query error logs: {error}"))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("failed to map error logs: {error}"))
+    }
+
+    pub fn clear_error_logs(&self) -> Result<ClearErrorLogsResult, String> {
+        let connection = self.open_connection()?;
+        let deleted_count = connection
+            .execute("DELETE FROM error_logs", [])
+            .map_err(|error| format!("failed to clear error logs: {error}"))?;
+
+        Ok(ClearErrorLogsResult { deleted_count })
+    }
+
     pub fn save_transcription(&self, entry: &NewHistoryTranscription) -> Result<(), String> {
         let connection = self.open_connection()?;
 
@@ -182,6 +241,27 @@ impl HistoryRepository {
         Ok(())
     }
 
+    pub fn save_error_log(&self, entry: &NewErrorLog) -> Result<(), String> {
+        let connection = self.open_connection()?;
+        let id = generate_record_id(&entry.scope, "error log")?;
+
+        connection
+            .execute(
+                "INSERT INTO error_logs (
+                    id,
+                    scope,
+                    source,
+                    summary,
+                    detail,
+                    created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                params![id, entry.scope, entry.source, entry.summary, entry.detail],
+            )
+            .map_err(|error| format!("failed to save error log: {error}"))?;
+
+        Ok(())
+    }
+
     fn open_connection(&self) -> Result<Connection, String> {
         Connection::open(self.database.path()).map_err(|error| {
             format!(
@@ -190,6 +270,19 @@ impl HistoryRepository {
             )
         })
     }
+}
+
+fn generate_record_id(prefix: &str, label: &str) -> Result<String, String> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("failed to generate {label} identifier: {error}"))?;
+
+    Ok(format!(
+        "{}-{}-{}",
+        prefix.trim().to_lowercase(),
+        timestamp.as_secs(),
+        timestamp.subsec_nanos()
+    ))
 }
 
 fn map_history_summary(row: &Row<'_>) -> rusqlite::Result<HistoryTranscriptionSummary> {
@@ -225,4 +318,82 @@ fn map_transcription(row: &Row<'_>) -> rusqlite::Result<HistoryTranscription> {
         error: row.get("error")?,
         created_at: row.get("created_at")?,
     })
+}
+
+fn map_error_log(row: &Row<'_>) -> rusqlite::Result<ErrorLogEntry> {
+    Ok(ErrorLogEntry {
+        id: row.get("id")?,
+        scope: row.get("scope")?,
+        source: row.get("source")?,
+        summary: row.get("summary")?,
+        detail: row.get("detail")?,
+        created_at: row.get("created_at")?,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HistoryRepository, NewErrorLog};
+    use crate::history_database::HistoryDatabase;
+    use std::{env, fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+
+    #[test]
+    fn saves_lists_and_clears_error_logs() {
+        let repository = HistoryRepository::new(HistoryDatabase::from_path(create_test_database_path()));
+
+        initialize_error_logs_table(&repository);
+
+        repository
+            .save_error_log(&NewErrorLog {
+                scope: "transcription".to_string(),
+                source: "frontend".to_string(),
+                summary: "Transcription did not finish".to_string(),
+                detail: "Gemini API returned 400 Bad Request".to_string(),
+            })
+            .expect("error log should be saved");
+
+        let logs = repository.get_error_logs().expect("error logs should load");
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].scope, "transcription");
+        assert_eq!(logs[0].source, "frontend");
+        assert_eq!(logs[0].summary, "Transcription did not finish");
+        assert_eq!(logs[0].detail, "Gemini API returned 400 Bad Request");
+
+        let result = repository.clear_error_logs().expect("error logs should clear");
+        assert_eq!(result.deleted_count, 1);
+        assert!(repository.get_error_logs().expect("error logs should reload").is_empty());
+    }
+
+    fn create_test_database_path() -> PathBuf {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch");
+        let path = env::temp_dir().join(format!(
+            "speakex-history-repository-test-{}-{}.sqlite3",
+            timestamp.as_secs(),
+            timestamp.subsec_nanos()
+        ));
+
+        if path.exists() {
+            fs::remove_file(&path).expect("stale test database should be removable");
+        }
+
+        path
+    }
+
+    fn initialize_error_logs_table(repository: &HistoryRepository) {
+        let connection = repository.open_connection().expect("database should open");
+        connection
+            .execute_batch(
+                "CREATE TABLE error_logs (
+                    id TEXT PRIMARY KEY,
+                    scope TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    detail TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );",
+            )
+            .expect("error logs table should be created");
+    }
 }

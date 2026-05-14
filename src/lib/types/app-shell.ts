@@ -1,6 +1,6 @@
 import type { AppSettings, ProviderId } from "$lib/settings/schema";
 
-export type AppSection = "recording" | "history" | "settings";
+export type AppSection = "recording" | "history" | "logs" | "settings";
 
 export type RecordingPhase = "idle" | "recording" | "transcribing" | "completed" | "error";
 

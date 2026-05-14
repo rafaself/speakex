@@ -26,10 +26,19 @@ interface HistoryControllerContext {
   setSelectedHistoryEntry: (entry: HistoryTranscription | null) => void;
   getSelectedHistoryEntry: () => HistoryTranscription | null;
   mapHistoryEntry: (entry: Awaited<ReturnType<typeof getHistory>>[number]) => HistoryEntryViewModel;
+  reportErrorLog: (entry: { scope: string; summary: string; detail: string }) => Promise<void>;
 }
 
 export function createHistoryController(context: HistoryControllerContext) {
   let latestHistoryDetailRequest = 0;
+
+  function reportHistoryError(summary: string, detail: string) {
+    void context.reportErrorLog({
+      scope: "history",
+      summary,
+      detail
+    });
+  }
 
   function clearHistorySelection() {
     latestHistoryDetailRequest += 1;
@@ -74,11 +83,13 @@ export function createHistoryController(context: HistoryControllerContext) {
         return;
       }
 
+      const detail =
+        error instanceof Error ? error.message : "Unable to load the selected transcript";
+
       context.setSelectedHistoryEntry(null);
-      context.setHistoryDetailError(
-        error instanceof Error ? error.message : "Unable to load the selected transcript"
-      );
+      context.setHistoryDetailError(detail);
       context.setHistoryDetailState("error");
+      reportHistoryError("History detail could not be loaded.", detail);
     }
   }
 
@@ -107,12 +118,12 @@ export function createHistoryController(context: HistoryControllerContext) {
 
       await selectHistoryEntry(nextSelectedId);
     } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unable to load saved transcripts";
       context.setHistoryEntries([]);
       clearHistorySelection();
-      context.setHistoryError(
-        error instanceof Error ? error.message : "Unable to load saved transcripts"
-      );
+      context.setHistoryError(detail);
       context.setHistoryState("error");
+      reportHistoryError("Transcript history could not be loaded.", detail);
     }
   }
 
@@ -149,9 +160,10 @@ export function createHistoryController(context: HistoryControllerContext) {
 
       context.setHistoryState("ready");
     } catch (error) {
-      context.setHistoryError(
-        error instanceof Error ? error.message : "Unable to delete the selected transcript"
-      );
+      const detail =
+        error instanceof Error ? error.message : "Unable to delete the selected transcript";
+      context.setHistoryError(detail);
+      reportHistoryError("A transcript could not be deleted from history.", detail);
     } finally {
       context.setHistoryBusyEntryId(null);
     }
@@ -175,9 +187,9 @@ export function createHistoryController(context: HistoryControllerContext) {
       clearHistorySelection();
       context.setHistoryState("ready");
     } catch (error) {
-      context.setHistoryError(
-        error instanceof Error ? error.message : "Unable to clear transcript history"
-      );
+      const detail = error instanceof Error ? error.message : "Unable to clear transcript history";
+      context.setHistoryError(detail);
+      reportHistoryError("Transcript history could not be cleared.", detail);
     } finally {
       context.setIsClearingHistory(false);
     }
