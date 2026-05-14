@@ -122,7 +122,7 @@ pub trait TranscriptionProvider: Send + Sync {
 }
 
 pub const GEMINI_PROVIDER_NAME: &str = "gemini";
-pub const DEFAULT_GEMINI_MODEL: &str = "gemini-2.0-flash";
+pub const DEFAULT_GEMINI_MODEL: &str = "gemini-2.5-flash";
 
 #[derive(Clone)]
 pub struct GeminiProvider {

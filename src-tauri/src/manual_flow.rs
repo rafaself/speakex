@@ -644,7 +644,7 @@ mod tests {
             Ok(Transcript {
                 text: self.transcript_text.clone(),
                 provider: "gemini".to_string(),
-                model: Some("gemini-2.0-flash".to_string()),
+                model: Some("gemini-2.5-flash".to_string()),
                 language: options.language,
                 duration_ms: input.duration_ms,
             })
