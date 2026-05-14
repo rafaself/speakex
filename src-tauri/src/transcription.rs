@@ -545,6 +545,7 @@ struct GeminiUploadRequest {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GeminiUploadMetadata {
     display_name: String,
 }
@@ -576,10 +577,14 @@ struct GeminiRequestContent {
 #[serde(untagged)]
 enum GeminiRequestPart {
     Text { text: String },
-    FileData { file_data: GeminiFileData },
+    FileData {
+        #[serde(rename = "fileData")]
+        file_data: GeminiFileData,
+    },
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GeminiFileData {
     mime_type: String,
     file_uri: String,
@@ -610,12 +615,15 @@ struct GeminiResponsePart {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_gemini_transcript_text, AudioInput, GeminiApiClient, GeminiApiKeyProvider,
-        GeminiGenerateContentResponse, GeminiProvider, GeminiResponseContent, GeminiResponsePart,
+        build_gemini_prompt, extract_gemini_transcript_text, AudioInput, GeminiApiClient,
+        GeminiApiKeyProvider, GeminiFileData, GeminiGenerateContentRequest,
+        GeminiGenerateContentResponse, GeminiProvider, GeminiRequestContent, GeminiRequestPart,
+        GeminiResponseContent, GeminiResponsePart, GeminiUploadMetadata, GeminiUploadRequest,
         GeminiUploadedFile, ProviderCapabilities, ResolvedGeminiOptions, Transcript,
         TranscriptionOptions, TranscriptionProvider, TranscriptionProviderError,
         TranscriptionService, DEFAULT_GEMINI_MODEL, GEMINI_PROVIDER_NAME,
     };
+    use serde_json::json;
     use std::path::PathBuf;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
@@ -731,6 +739,68 @@ mod tests {
                 .expect("upload_calls lock should succeed")
                 .as_slice(),
             &[("gemini-secret-token".to_string(), input)]
+        );
+    }
+
+    #[test]
+    fn gemini_upload_request_serializes_metadata_in_camel_case() {
+        let payload = serde_json::to_value(GeminiUploadRequest {
+            file: GeminiUploadMetadata {
+                display_name: "recording.wav".to_string(),
+            },
+        })
+        .expect("upload request should serialize");
+
+        assert_eq!(
+            payload,
+            json!({
+                "file": {
+                    "displayName": "recording.wav"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn gemini_generate_content_request_serializes_file_data_in_camel_case() {
+        let payload = serde_json::to_value(GeminiGenerateContentRequest {
+            contents: vec![GeminiRequestContent {
+                parts: vec![
+                    GeminiRequestPart::Text {
+                        text: build_gemini_prompt(&ResolvedGeminiOptions::from_options(
+                            TranscriptionOptions::default(),
+                        )),
+                    },
+                    GeminiRequestPart::FileData {
+                        file_data: GeminiFileData {
+                            mime_type: "audio/wav".to_string(),
+                            file_uri: "https://example.test/files/uploaded-audio".to_string(),
+                        },
+                    },
+                ],
+            }],
+        })
+        .expect("generate content request should serialize");
+
+        assert_eq!(
+            payload,
+            json!({
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": "Transcribe the provided audio as plain text. Return only the transcription without summaries, speaker-label guesses, or extra commentary."
+                            },
+                            {
+                                "fileData": {
+                                    "mimeType": "audio/wav",
+                                    "fileUri": "https://example.test/files/uploaded-audio"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            })
         );
     }
 
