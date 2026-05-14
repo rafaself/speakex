@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createDefaultAppSettings } from "$lib/settings/schema";
 import type { RecordedAudioMetadata } from "$lib/types/app-shell";
@@ -75,6 +75,7 @@ function createControllerHarness() {
 
   const controller = createRecordingController({
     getSettingsDraft: () => state.settingsDraft,
+    getAvailableRecordingDevices: () => state.availableRecordingDevices,
     setAvailableRecordingDevices: (value) => {
       state.availableRecordingDevices = value;
     },
@@ -158,6 +159,10 @@ describe("createRecordingController", () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("loads recording devices and refreshes idle status when ready", async () => {
     recordingMocks.listRecordingInputDevices.mockResolvedValue([
       { name: "USB Mic", label: "USB Mic", isDefault: true }
@@ -178,10 +183,40 @@ describe("createRecordingController", () => {
     expect(state.idleStatusMessage).toBe("");
   });
 
+  it("refreshes recording devices in the background when a new microphone is connected", async () => {
+    vi.useFakeTimers();
+    recordingMocks.listRecordingInputDevices
+      .mockResolvedValueOnce([{ name: "Built-in Mic", label: "Built-in Mic", isDefault: true }])
+      .mockResolvedValueOnce([
+        { name: "Built-in Mic", label: "Built-in Mic", isDefault: true },
+        { name: "USB Mic", label: "USB Mic", isDefault: false }
+      ]);
+
+    const { controller, state } = createControllerHarness();
+
+    await controller.loadRecordingDevices();
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(state.availableRecordingDevices).toEqual([
+      { name: "Built-in Mic", label: "Built-in Mic", isDefault: true },
+      { name: "USB Mic", label: "USB Mic", isDefault: false }
+    ]);
+    expect(state.recordingInputOptionsArgs).toEqual({
+      devices: [
+        { name: "Built-in Mic", label: "Built-in Mic", isDefault: true },
+        { name: "USB Mic", label: "USB Mic", isDefault: false }
+      ],
+      selected: "default"
+    });
+
+    controller.stopRecordingDevicePolling();
+  });
+
   it("shows an error state when recording cannot start because the microphone is unavailable", async () => {
     const { state } = createControllerHarness();
     const controller = createRecordingController({
       getSettingsDraft: () => state.settingsDraft,
+      getAvailableRecordingDevices: () => state.availableRecordingDevices,
       setAvailableRecordingDevices: () => undefined,
       setRecordingDevicesState: () => undefined,
       setRecordingDevicesError: () => undefined,

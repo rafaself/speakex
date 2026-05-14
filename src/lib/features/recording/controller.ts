@@ -30,6 +30,7 @@ import {
 } from "./status";
 
 const recordingStatusPollIntervalMs = 1000;
+const recordingDevicesPollIntervalMs = 3000;
 
 export interface LatestManualOutcomeSettings {
   autoCopy: boolean;
@@ -39,6 +40,7 @@ export interface LatestManualOutcomeSettings {
 
 interface RecordingControllerContext {
   getSettingsDraft: () => SettingsDraft;
+  getAvailableRecordingDevices: () => RecordingInputDevice[];
   setAvailableRecordingDevices: (devices: RecordingInputDevice[]) => void;
   setRecordingDevicesState: (state: "loading" | "ready" | "error") => void;
   setRecordingDevicesError: (message: string) => void;
@@ -80,7 +82,23 @@ interface RecordingControllerContext {
 
 export function createRecordingController(context: RecordingControllerContext) {
   let recordingStatusPoller: number | null = null;
+  let recordingDevicesPoller: number | null = null;
   let isRefreshingRecordingStatus = false;
+
+  function areRecordingDevicesEqual(
+    currentDevices: RecordingInputDevice[],
+    nextDevices: RecordingInputDevice[]
+  ) {
+    return (
+      currentDevices.length === nextDevices.length &&
+      currentDevices.every(
+        (device, index) =>
+          device.name === nextDevices[index]?.name &&
+          device.label === nextDevices[index]?.label &&
+          device.isDefault === nextDevices[index]?.isDefault
+      )
+    );
+  }
 
   function stopRecordingStatusPolling() {
     if (recordingStatusPoller === null) {
@@ -101,16 +119,60 @@ export function createRecordingController(context: RecordingControllerContext) {
     }, recordingStatusPollIntervalMs);
   }
 
-  async function loadRecordingDevices() {
-    context.setRecordingDevicesState("loading");
+  function stopRecordingDevicePolling() {
+    if (recordingDevicesPoller === null) {
+      return;
+    }
+
+    window.clearInterval(recordingDevicesPoller);
+    recordingDevicesPoller = null;
+  }
+
+  function startRecordingDevicePolling() {
+    if (recordingDevicesPoller !== null) {
+      return;
+    }
+
+    recordingDevicesPoller = window.setInterval(() => {
+      if (
+        context.getActiveRecordingSession() !== null ||
+        context.getRecordingCommandState() !== null
+      ) {
+        return;
+      }
+
+      void refreshRecordingDevices({ showLoading: false, suppressErrors: true });
+    }, recordingDevicesPollIntervalMs);
+  }
+
+  async function refreshRecordingDevices(options?: {
+    showLoading?: boolean;
+    suppressErrors?: boolean;
+  }) {
+    const showLoading = options?.showLoading ?? true;
+    const suppressErrors = options?.suppressErrors ?? false;
+
+    if (showLoading) {
+      context.setRecordingDevicesState("loading");
+    }
+
     context.setRecordingDevicesError("");
 
     try {
       const devices = await listRecordingInputDevices();
-      context.setAvailableRecordingDevices(devices);
-      context.setRecordingInputOptions(devices, context.getSettingsDraft().selectedMicrophone);
+      const currentDevices = context.getAvailableRecordingDevices();
+
+      if (showLoading || !areRecordingDevicesEqual(currentDevices, devices)) {
+        context.setAvailableRecordingDevices(devices);
+        context.setRecordingInputOptions(devices, context.getSettingsDraft().selectedMicrophone);
+      }
+
       context.setRecordingDevicesState("ready");
     } catch (error) {
+      if (suppressErrors) {
+        return;
+      }
+
       context.setAvailableRecordingDevices([]);
       context.setRecordingDevicesError(
         error instanceof Error ? error.message : "Unable to load recording input devices"
@@ -122,6 +184,11 @@ export function createRecordingController(context: RecordingControllerContext) {
     if (context.getActiveRecordingSession() === null && context.getAppStatusPhase() === "idle") {
       context.syncIdleStatus();
     }
+  }
+
+  async function loadRecordingDevices() {
+    await refreshRecordingDevices();
+    startRecordingDevicePolling();
   }
 
   async function syncRecorderFromNative(suppressErrors = false) {
@@ -504,6 +571,7 @@ export function createRecordingController(context: RecordingControllerContext) {
     discardRecording,
     loadRecordingDevices,
     startManualTranscription,
+    stopRecordingDevicePolling,
     stopRecordingStatusPolling,
     syncRecorderFromNative
   };

@@ -424,6 +424,7 @@
   });
 
   onDestroy(() => {
+    recordingController.stopRecordingDevicePolling();
     recordingController.stopRecordingStatusPolling();
   });
 
@@ -536,6 +537,7 @@
 
   const recordingController = createRecordingController({
     getSettingsDraft: () => get(settingsDraft),
+    getAvailableRecordingDevices: () => availableRecordingDevices,
     setAvailableRecordingDevices: (devices) => {
       availableRecordingDevices = devices;
     },
