@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { get } from "svelte/store";
+  import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
 
   import Sidebar from "$lib/components/app-shell/Sidebar.svelte";
   import HistorySection from "$lib/components/home/HistorySection.svelte";
@@ -57,6 +58,7 @@
     "If SpeakEx was hidden when this transcription finished, you may also have seen a desktop notification.";
   const hiddenManualNotificationFailedMessage =
     "If SpeakEx was hidden when this transcription failed, you may also have seen a generic desktop notification. The detailed error stays in SpeakEx.";
+  const defaultWindowTitle = "SpeakEx";
 
   let settingsState: SettingsState = "loading";
   let settingsError = "";
@@ -90,6 +92,8 @@
   let recordingCommandState: RecordingCommandState = null;
   let activeRecordingSession: ActiveRecordingSession | null = null;
   let latestRecordingStatus: RecordingStatus | null = null;
+  let currentWindow: Window | null = null;
+  let isWindowMaximized = false;
 
   $: effectiveSelectedMicrophoneValue =
     $settingsDraft.selectedMicrophone === "default"
@@ -399,13 +403,54 @@
   }
 
   onMount(() => {
+    currentWindow = getCurrentWindow();
+
+    void syncWindowChromeState();
     void initializeWorkspace();
     void loadHistoryEntries();
+
+    const unlistenPromise = currentWindow.listen("tauri://resize", async () => {
+      isWindowMaximized = await currentWindow?.isMaximized() ?? false;
+    });
+
+    const themeUnlistenPromise = currentWindow.listen("tauri://focus", async () => {
+      isWindowMaximized = await currentWindow?.isMaximized() ?? false;
+    });
+
+    onDestroy(() => {
+      void unlistenPromise.then((unlisten) => unlisten());
+      void themeUnlistenPromise.then((unlisten) => unlisten());
+    });
   });
 
   onDestroy(() => {
     recordingController.stopRecordingStatusPolling();
   });
+
+  async function syncWindowChromeState() {
+    if (currentWindow === null) {
+      return;
+    }
+
+    isWindowMaximized = await currentWindow.isMaximized();
+  }
+
+  async function startWindowDrag() {
+    await currentWindow?.startDragging();
+  }
+
+  async function minimizeWindow() {
+    await currentWindow?.minimize();
+  }
+
+  async function toggleWindowMaximize() {
+    await currentWindow?.toggleMaximize();
+    await syncWindowChromeState();
+  }
+
+  async function closeWindow() {
+    await currentWindow?.close();
+  }
 
   function showSection(section: AppSection) {
     activeSection.set(section);
@@ -673,6 +718,30 @@
 </svelte:head>
 
 <main class="app-shell">
+  <header class="window-titlebar">
+    <button
+      class="window-drag-region"
+      type="button"
+      aria-label="Move window"
+      on:mousedown={startWindowDrag}
+      on:dblclick={toggleWindowMaximize}
+    >
+      <span class="window-title">{defaultWindowTitle}</span>
+    </button>
+
+    <div class="window-controls">
+      <button class="window-control" type="button" aria-label="Minimize window" on:click={minimizeWindow}>
+        <span class="window-control-icon window-control-icon-minimize" aria-hidden="true"></span>
+      </button>
+      <button class="window-control" type="button" aria-label="Toggle maximize window" on:click={toggleWindowMaximize}>
+        <span class:window-control-icon={true} class:window-control-icon-maximize={!isWindowMaximized} class:window-control-icon-restore={isWindowMaximized} aria-hidden="true"></span>
+      </button>
+      <button class="window-control window-control-close" type="button" aria-label="Close window" on:click={closeWindow}>
+        <span class="window-control-icon window-control-icon-close" aria-hidden="true"></span>
+      </button>
+    </div>
+  </header>
+
   <Sidebar
     currentSection={$activeSection}
     onResetWorkspace={resetWorkspaceView}
@@ -786,21 +855,144 @@
     height: 100vh;
     display: grid;
     grid-template-columns: 260px 1fr;
+    grid-template-rows: 48px 1fr;
     box-sizing: border-box;
     overflow: hidden;
+  }
+
+  .window-titlebar {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: stretch;
+    min-height: 48px;
+    background: #171717;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .window-drag-region {
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    text-align: left;
+    user-select: none;
+    cursor: default;
+  }
+
+  .window-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: #f3f3f5;
+  }
+
+  .window-controls {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .window-control {
+    width: 46px;
+    min-width: 46px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #d5d5d9;
+    cursor: default;
+    transition:
+      background-color 140ms ease,
+      color 140ms ease;
+  }
+
+  .window-control:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+  }
+
+  .window-control-close:hover {
+    background: #d63b3b;
+    color: #ffffff;
+  }
+
+  .window-control-icon {
+    position: relative;
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+  }
+
+  .window-control-icon-minimize::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 2px;
+    border-top: 1.5px solid currentColor;
+  }
+
+  .window-control-icon-maximize::before {
+    content: "";
+    position: absolute;
+    inset: 1px;
+    border: 1.5px solid currentColor;
+  }
+
+  .window-control-icon-restore::before,
+  .window-control-icon-restore::after {
+    content: "";
+    position: absolute;
+    border: 1.5px solid currentColor;
+    background: #171717;
+  }
+
+  .window-control-icon-restore::before {
+    width: 7px;
+    height: 7px;
+    top: 0;
+    right: 0;
+  }
+
+  .window-control-icon-restore::after {
+    width: 7px;
+    height: 7px;
+    left: 0;
+    bottom: 0;
+  }
+
+  .window-control-icon-close::before,
+  .window-control-icon-close::after {
+    content: "";
+    position: absolute;
+    top: 5px;
+    left: 0;
+    width: 12px;
+    border-top: 1.5px solid currentColor;
+  }
+
+  .window-control-icon-close::before {
+    transform: rotate(45deg);
+  }
+
+  .window-control-icon-close::after {
+    transform: rotate(-45deg);
   }
 
   .workspace {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    min-height: 0;
     position: relative;
     background: #212121;
+  }
+
+  :global(.sidebar) {
+    min-height: 0;
   }
 
   @media (max-width: 768px) {
     .app-shell {
       grid-template-columns: 1fr;
+      grid-template-rows: 48px auto 1fr;
     }
   }
 </style>
