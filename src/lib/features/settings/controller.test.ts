@@ -211,6 +211,20 @@ describe("createSettingsController", () => {
     expect(state.geminiApiKeyStatusDetail).toBe("");
   });
 
+  it("summarizes secure storage failures when saving the Gemini API key", async () => {
+    secretStoreMocks.saveGeminiApiKey.mockRejectedValue(new Error("secure storage is unavailable"));
+
+    const { controller, state } = createControllerHarness();
+    state.geminiApiKeyDraft = "api-key-123";
+
+    await controller.submitGeminiApiKey();
+
+    expect(state.geminiApiKeyActionState).toBe("error");
+    expect(state.geminiApiKeyStatusDetail).toBe(
+      "Secure storage is unavailable, so SpeakEx could not save the Gemini API key."
+    );
+  });
+
   it("saves and applies the recording shortcut", async () => {
     settingsMocks.saveAppSettings.mockImplementation(async (settings) => settings);
     shortcutMocks.applyRecordingShortcut.mockResolvedValue({

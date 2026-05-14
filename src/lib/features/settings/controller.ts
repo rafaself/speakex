@@ -47,6 +47,33 @@ interface SettingsControllerContext {
   canClearRecordingShortcut: () => boolean;
 }
 
+function summarizeGeminiApiKeyFailure(detail: string, action: "check" | "save" | "clear") {
+  const normalized = detail.replace(/\s+/gu, " ").trim();
+
+  if (normalized === "") {
+    return "SpeakEx could not determine the secure storage failure cause.";
+  }
+
+  if (/^secure storage is unavailable$/iu.test(normalized)) {
+    if (action === "save") {
+      return "Secure storage is unavailable, so SpeakEx could not save the Gemini API key.";
+    }
+
+    if (action === "clear") {
+      return "Secure storage is unavailable, so SpeakEx could not clear the Gemini API key.";
+    }
+
+    return "Secure storage is unavailable, so SpeakEx could not check the Gemini API key.";
+  }
+
+  if (/^Gemini API key cannot be empty$/iu.test(normalized)) {
+    return "Enter a Gemini API key before saving.";
+  }
+
+  const summarized = normalized.endsWith(".") ? normalized : `${normalized}.`;
+  return summarized;
+}
+
 export function createSettingsController(context: SettingsControllerContext) {
   let lastSavedSettings: SettingsDraft | null = null;
   let settingsSaveQueue = Promise.resolve();
@@ -190,11 +217,12 @@ export function createSettingsController(context: SettingsControllerContext) {
         context.setGeminiApiKeyStatusDetail("");
       }
     } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unable to check the Gemini API key status.";
+
       context.setGeminiApiKeyPresenceState("error");
       context.setGeminiApiKeyActionState("error");
-      context.setGeminiApiKeyStatusDetail(
-        error instanceof Error ? error.message : "Unable to check the Gemini API key status."
-      );
+      context.setGeminiApiKeyStatusDetail(summarizeGeminiApiKeyFailure(detail, "check"));
     }
   }
 
@@ -330,13 +358,13 @@ export function createSettingsController(context: SettingsControllerContext) {
       context.setGeminiApiKeyActionState("idle");
       context.setGeminiApiKeyStatusDetail("");
     } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unable to save the Gemini API key.";
+
       context.setGeminiApiKeyActionState("error");
       context.setGeminiApiKeyPresenceState(
         context.getGeminiApiKeyPresence() ? "present" : "missing"
       );
-      context.setGeminiApiKeyStatusDetail(
-        error instanceof Error ? error.message : "Unable to save the Gemini API key."
-      );
+      context.setGeminiApiKeyStatusDetail(summarizeGeminiApiKeyFailure(detail, "save"));
     }
   }
 
@@ -366,13 +394,13 @@ export function createSettingsController(context: SettingsControllerContext) {
           : "No Gemini API key was stored in the OS keychain."
       );
     } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unable to clear the Gemini API key.";
+
       context.setGeminiApiKeyActionState("error");
       context.setGeminiApiKeyPresenceState(
         context.getGeminiApiKeyPresence() ? "present" : "missing"
       );
-      context.setGeminiApiKeyStatusDetail(
-        error instanceof Error ? error.message : "Unable to clear the Gemini API key."
-      );
+      context.setGeminiApiKeyStatusDetail(summarizeGeminiApiKeyFailure(detail, "clear"));
     }
   }
 

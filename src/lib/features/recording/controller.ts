@@ -32,6 +32,49 @@ import {
 const recordingStatusPollIntervalMs = 1000;
 const recordingDevicesPollIntervalMs = 3000;
 
+function summarizeTranscriptionFailure(detail: string): string {
+  const normalized = detail.replace(/\s+/gu, " ").trim();
+
+  if (normalized === "") {
+    return "SpeakEx could not determine the transcription failure cause.";
+  }
+
+  if (/^Gemini API key is not configured$/iu.test(normalized)) {
+    return "Gemini API key is not configured.";
+  }
+
+  if (/^secure storage is unavailable$/iu.test(normalized)) {
+    return "Secure storage is unavailable, so SpeakEx could not read the Gemini API key.";
+  }
+
+  if (/^failed to read audio input /iu.test(normalized)) {
+    return "SpeakEx could not read the recorded audio file from disk.";
+  }
+
+  const withoutRootPrefix = normalized.replace(/^Gemini transcription failed:\s*/iu, "");
+  const withoutBody = withoutRootPrefix.replace(/\s*\([^)]*\)$/u, "").trim();
+  const summarized = withoutBody.endsWith(".") ? withoutBody : `${withoutBody}.`;
+
+  return summarized.length > 200 ? `${summarized.slice(0, 197).trimEnd()}...` : summarized;
+}
+
+function summarizeRecordingFailure(detail: string): string {
+  const normalized = detail.replace(/\s+/gu, " ").trim();
+
+  if (normalized === "") {
+    return "SpeakEx could not determine the recording failure cause.";
+  }
+
+  const withoutPrefix = normalized
+    .replace(/^failed to start recording:\s*/iu, "")
+    .replace(/^failed to stop recording:\s*/iu, "")
+    .replace(/^failed to cancel recording:\s*/iu, "")
+    .replace(/^failed to read recording status:\s*/iu, "");
+  const summarized = withoutPrefix.endsWith(".") ? withoutPrefix : `${withoutPrefix}.`;
+
+  return summarized.length > 200 ? `${summarized.slice(0, 197).trimEnd()}...` : summarized;
+}
+
 export interface LatestManualOutcomeSettings {
   autoCopy: boolean;
   saveAudioFiles: boolean;
@@ -203,6 +246,10 @@ export function createRecordingController(context: RecordingControllerContext) {
       context.setLatestRecordingStatus(status);
       await applyNativeRecordingStatus(status);
     } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unable to refresh the native recording status.";
+      const summary = summarizeRecordingFailure(detail);
+
       if (
         !suppressErrors &&
         context.getActiveRecordingSession() !== null &&
@@ -212,12 +259,9 @@ export function createRecordingController(context: RecordingControllerContext) {
         context.setActiveRecordingSession(null);
         context.setAppStatus(
           getAppStatusForPhase("error", {
-            detail:
-              error instanceof Error
-                ? error.message
-                : "Unable to refresh the native recording status.",
+            detail,
             transcriptPreview:
-              "SpeakEx could not refresh the current recording status. No transcription ran automatically.",
+              `SpeakEx could not refresh the current recording status: ${summary} No transcription ran automatically.`,
             inputLabel: context.getSelectedMicrophoneLabel(),
             recordingTiming: null,
             recordedAudio: context.getRecordedAudio()
@@ -310,16 +354,17 @@ export function createRecordingController(context: RecordingControllerContext) {
       context.setLatestCompletedRecordingMetadata(completedStatus.recordedAudio);
       context.setAppStatus(completedStatus);
     } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unable to finalize the completed recording.";
+      const summary = summarizeRecordingFailure(detail);
+
       context.setActiveRecordingSession(null);
       context.setAppStatus(
         getAppStatusForPhase("error", {
-          detail:
-            error instanceof Error
-              ? error.message
-              : "Unable to finalize the completed recording.",
+          detail,
           transcriptPreview: status.limitReached
-            ? "The recorder hit the hard time limit, but the UI could not finish loading the completed recording metadata. No transcription ran automatically."
-            : "The UI could not finish loading the completed recording metadata. No transcription ran automatically.",
+            ? `The recorder hit the hard time limit, and SpeakEx could not finish loading the completed recording metadata: ${summary} No transcription ran automatically.`
+            : `SpeakEx could not finish loading the completed recording metadata: ${summary} No transcription ran automatically.`,
           inputLabel: status.inputDeviceName ?? context.getSelectedMicrophoneLabel(),
           durationLabel: buildDurationSummaryLabel(recordingTiming, {
             formatDuration: context.formatDuration
@@ -367,11 +412,14 @@ export function createRecordingController(context: RecordingControllerContext) {
       await syncRecorderFromNative(true);
       startRecordingStatusPolling();
     } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unable to start the recorder.";
+      const summary = summarizeRecordingFailure(detail);
+
       context.setAppStatus(
         getAppStatusForPhase("error", {
-          detail: error instanceof Error ? error.message : "Unable to start the recorder.",
+          detail,
           transcriptPreview:
-            "The native start_recording command did not succeed. Check the selected microphone and try again.",
+            `Recording could not start: ${summary} Check the selected microphone and try again.`,
           inputLabel: context.getSelectedMicrophoneLabel(),
           recordedAudio: null
         })
@@ -408,12 +456,15 @@ export function createRecordingController(context: RecordingControllerContext) {
           : `Recording ${cancelledSessionId} was discarded.`
       );
     } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unable to cancel the recorder.";
+      const summary = summarizeRecordingFailure(detail);
+
       context.setActiveRecordingSession(null);
       context.setAppStatus(
         getAppStatusForPhase("error", {
-          detail: error instanceof Error ? error.message : "Unable to cancel the recorder.",
+          detail,
           transcriptPreview:
-            "The native cancel_recording command did not finish successfully. Retry only after confirming the recorder returned to idle.",
+            `Recording could not be cancelled: ${summary} Retry only after confirming the recorder returned to idle.`,
           inputLabel: context.getSelectedMicrophoneLabel(),
           recordedAudio: null
         })
@@ -484,6 +535,7 @@ export function createRecordingController(context: RecordingControllerContext) {
     } catch (error) {
       const manualFailureDetail =
         error instanceof Error ? error.message : "Unable to finish the transcription flow.";
+      const manualFailureSummary = summarizeTranscriptionFailure(manualFailureDetail);
       const retryableRecordedAudio = (await hasCompletedRecordingAudio(recordedAudio))
         ? recordedAudio
         : null;
@@ -498,8 +550,8 @@ export function createRecordingController(context: RecordingControllerContext) {
           detail: manualFailureDetail,
           transcriptPreview:
             retryableRecordedAudio === null
-              ? `Transcription did not finish, and the recorded audio file is no longer available for recovery. Retry transcription is hidden until you record again. ${context.hiddenManualNotificationFailedMessage}`
-              : `Transcription did not finish, but the recorded audio file remains local so you can use Retry transcription to try the same recording again. ${context.hiddenManualNotificationFailedMessage}`,
+              ? `Transcription did not finish: ${manualFailureSummary} The recorded audio file is no longer available for recovery, so Retry transcription stays hidden until you record again. ${context.hiddenManualNotificationFailedMessage}`
+              : `Transcription did not finish: ${manualFailureSummary} The recorded audio file remains local, so you can use Retry transcription to try the same recording again. ${context.hiddenManualNotificationFailedMessage}`,
           durationLabel: context.formatDuration(recordedAudio.durationMs),
           recordingTiming: buildRecordingTimingFromRecordedAudio(recordedAudio),
           recordedAudio: retryableRecordedAudio
@@ -537,15 +589,18 @@ export function createRecordingController(context: RecordingControllerContext) {
         await runTranscriptionForRecordedAudio(recordedAudio);
       }
     } catch (error) {
+      const detail =
+        error instanceof Error
+          ? error.message
+          : "Unable to finish the recorder before transcription.";
+      const summary = summarizeRecordingFailure(detail);
+
       context.setActiveRecordingSession(null);
       context.setAppStatus(
         getAppStatusForPhase("error", {
-          detail:
-            error instanceof Error
-              ? error.message
-              : "Unable to finish the recorder before transcription.",
+          detail,
           transcriptPreview:
-            "SpeakEx could not finish the recording before starting transcription. Retry after confirming the recorder returned to idle.",
+            `SpeakEx could not finish the recording before starting transcription: ${summary} Retry after confirming the recorder returned to idle.`,
           inputLabel: context.getSelectedMicrophoneLabel(),
           recordedAudio: null
         })

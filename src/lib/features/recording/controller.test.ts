@@ -269,6 +269,23 @@ describe("createRecordingController", () => {
     });
   });
 
+  it("surfaces a readable summary when starting the recorder fails", async () => {
+    recordingMocks.startRecording.mockRejectedValue(
+      new Error("failed to start recording: microphone permission denied")
+    );
+
+    const { controller, state } = createControllerHarness();
+
+    await controller.beginRecording();
+
+    expect(state.appStatus).toMatchObject({
+      phase: "error",
+      detail: "failed to start recording: microphone permission denied",
+      transcriptPreview:
+        "Recording could not start: microphone permission denied. Check the selected microphone and try again."
+    });
+  });
+
   it("confirms an active recording and transcribes it immediately", async () => {
     recordingMocks.stopRecording.mockResolvedValue({
       sessionId: "session-1",
@@ -360,6 +377,39 @@ describe("createRecordingController", () => {
     expect(state.appStatus).toMatchObject({
       phase: "error",
       headline: "Manual transcription needs a new recording."
+    });
+  });
+
+  it("surfaces a readable summary when manual transcription fails but retry remains available", async () => {
+    transcriptionMocks.hasCompletedRecordingAudio.mockResolvedValue(true);
+    transcriptionMocks.runCompletedRecordingTranscription.mockRejectedValue(
+      new Error(
+        'Gemini transcription failed: Gemini transcription request failed: Gemini API returned 400 Bad Request ({"error":{"message":"Bad request"}})'
+      )
+    );
+
+    const { controller, state } = createControllerHarness();
+    state.transcribableRecordedAudio = {
+      sessionId: "session-1",
+      path: "/tmp/session-1.wav",
+      mimeType: "audio/wav",
+      durationMs: 42_000,
+      inputDeviceName: "USB Mic",
+      sampleRateHz: 48_000,
+      channels: 2,
+      fileSizeBytes: 128_000,
+      limitReached: false,
+      maxDurationMs: 900_000
+    };
+
+    await controller.startManualTranscription();
+
+    expect(state.appStatus).toMatchObject({
+      phase: "error",
+      detail:
+        'Gemini transcription failed: Gemini transcription request failed: Gemini API returned 400 Bad Request ({"error":{"message":"Bad request"}})',
+      transcriptPreview:
+        "Transcription did not finish: Gemini transcription request failed: Gemini API returned 400 Bad Request. The recorded audio file remains local, so you can use Retry transcription to try the same recording again. Failed notification."
     });
   });
 
