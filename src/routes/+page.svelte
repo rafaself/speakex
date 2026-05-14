@@ -762,10 +762,13 @@
   }
 
   :global(button) {
+    appearance: none;
+    -webkit-appearance: none;
     font: inherit;
     border: none;
     background: transparent;
     color: inherit;
+    box-shadow: none;
   }
 
   :global(button:not(:disabled)),

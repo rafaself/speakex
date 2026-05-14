@@ -80,7 +80,7 @@
 
 <style>
   .sidebar {
-    background: #171717;
+    background: #161616;
     display: flex;
     flex-direction: column;
     padding: 1rem 0.75rem;
@@ -103,12 +103,12 @@
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    transition: background 0.2s;
-    color: #b4b4b4;
+    transition: background 0.2s, color 0.2s;
+    color: #d1d1d1;
   }
 
   .icon-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.12);
     color: #fff;
   }
 
@@ -121,11 +121,13 @@
     border-radius: 8px;
     font-weight: 500;
     font-size: 0.9rem;
-    transition: background 0.2s;
+    transition: background 0.2s, color 0.2s;
+    background: rgba(255, 255, 255, 0.08);
+    color: #f5f5f5;
   }
 
   .new-chat-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.14);
   }
 
   .new-chat-copy {
@@ -149,15 +151,20 @@
     padding: 0.75rem;
     border-radius: 8px;
     font-size: 0.9rem;
-    color: #ececf1;
-    transition: background 0.2s;
+    color: #d7d7dc;
+    transition: background 0.2s, color 0.2s;
     width: 100%;
     text-align: left;
   }
 
-  .nav-item:hover,
-  .nav-item.active {
+  .nav-item:hover {
     background: rgba(255, 255, 255, 0.1);
+    color: #f8f8fa;
+  }
+
+  .nav-item.active {
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
   }
 
   .sidebar-footer {

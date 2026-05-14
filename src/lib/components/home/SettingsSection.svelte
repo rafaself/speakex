@@ -219,19 +219,21 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
     padding: 2rem;
     overflow-y: auto;
+    box-sizing: border-box;
   }
 
   .settings-layout {
     justify-content: flex-start;
-    padding: 6rem 2rem;
+    padding: 4rem clamp(1.5rem, 4vw, 3.5rem);
   }
 
   .content {
     width: 100%;
-    max-width: 600px;
+    max-width: 880px;
+    margin-right: auto;
     text-align: left;
   }
 
@@ -244,7 +246,7 @@
   .section-note {
     margin: 0 0 2rem;
     font-size: 0.9rem;
-    color: #9b9b9b;
+    color: #b7b7b7;
     line-height: 1.5;
   }
 
@@ -256,14 +258,15 @@
 
   .settings-section h3 {
     font-size: 0.85rem;
-    color: #9b9b9b;
+    color: #b4b4b4;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin: 0 0 1rem;
   }
 
   .chat-input-wrapper {
-    background: #2f2f2f;
+    background: #303030;
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 24px;
     padding: 0.5rem 0.75rem 0.5rem 1.25rem;
     display: flex;
@@ -289,7 +292,7 @@
   }
 
   .chat-input::placeholder {
-    color: #9b9b9b;
+    color: #b2b2b2;
   }
 
   .chat-input[type="password"] {
@@ -336,7 +339,7 @@
   .status-copy {
     font-size: 0.85rem;
     margin: 0.75rem 0 0;
-    color: #888;
+    color: #b0b0b0;
   }
 
   .status-copy.status-ok {
@@ -344,13 +347,14 @@
   }
 
   .muted-copy {
-    color: #9b9b9b;
+    color: #b3b3b3;
   }
 
   .action-bar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
+    flex-wrap: wrap;
     width: 100%;
     margin-top: 0.75rem;
     gap: 1rem;
@@ -359,7 +363,7 @@
   .action-group {
     display: flex;
     gap: 0.75rem;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     align-items: center;
     min-width: 0;
   }
@@ -369,16 +373,18 @@
   }
 
   .secondary-pill {
-    background: rgba(255, 255, 255, 0.06);
-    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+    color: #f7f7f7;
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 8px;
     padding: 0.55rem 0.8rem;
     font-weight: 600;
-    transition: background 0.2s;
+    transition: background 0.2s, border-color 0.2s;
   }
 
   .secondary-pill:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.2);
   }
 
   .secondary-pill:disabled {
@@ -406,14 +412,14 @@
 
   .preference-description {
     font-size: 0.85rem;
-    color: #9b9b9b;
+    color: #b2b2b2;
     margin-top: 0.15rem;
   }
 
   .toggle {
     width: 44px;
     height: 24px;
-    background: #444;
+    background: #5b5b5b;
     border-radius: 12px;
     position: relative;
     transition: background 0.2s;
@@ -437,5 +443,15 @@
 
   .toggle-thumb.thumb-on {
     left: 22px;
+  }
+
+  @media (max-width: 768px) {
+    .settings-layout {
+      padding: 2rem 1rem;
+    }
+
+    .action-group-end {
+      margin-left: 0;
+    }
   }
 </style>
