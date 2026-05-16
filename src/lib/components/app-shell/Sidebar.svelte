@@ -12,17 +12,10 @@
 
 <aside class="sidebar">
   <div class="sidebar-header">
-    <button class="icon-btn" title="Open sidebar" type="button">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-        <line x1="9" y1="3" x2="9" y2="21" />
-      </svg>
-    </button>
-    <button class="icon-btn" title="New chat" type="button" on:click={handleNewChat}>
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 5v14M5 12h14" />
-      </svg>
-    </button>
+    <div class="sidebar-brand" aria-label="SpeakEx">
+      <img class="sidebar-brand-icon" src="/app-icon.svg" alt="" />
+      <span>SpeakEx</span>
+    </div>
   </div>
 
   <button class="new-chat-btn" type="button" on:click={handleNewChat}>
@@ -105,25 +98,25 @@
 
   .sidebar-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
     padding: 0 0.5rem 1rem;
   }
 
-  .icon-btn {
-    width: 32px;
-    height: 32px;
+  .sidebar-brand {
     display: flex;
     align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    transition: background 0.2s, color 0.2s;
-    color: #d1d1d1;
+    gap: 0.75rem;
+    color: #f5f5f5;
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
   }
 
-  .icon-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
+  .sidebar-brand-icon {
+    width: 2rem;
+    height: 2rem;
+    display: block;
+    flex: none;
   }
 
   .new-chat-btn {

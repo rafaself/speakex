@@ -1,0 +1,131 @@
+<svg
+  width="512"
+  height="512"
+  viewBox="0 0 512 512"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <defs>
+    <mask id="mic-slots">
+      <rect width="512" height="512" fill="white" />
+      <rect x="156" y="168" width="78" height="20" rx="10" fill="black" />
+      <rect x="156" y="216" width="78" height="20" rx="10" fill="black" />
+      <rect x="278" y="168" width="78" height="20" rx="10" fill="black" />
+      <rect x="278" y="216" width="78" height="20" rx="10" fill="black" />
+    </mask>
+
+    <filter id="roughen" x="-10%" y="-10%" width="120%" height="120%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="1" seed="7" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.6" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+  </defs>
+
+  <style>
+    .line {
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .outline {
+      stroke: #6e8794;
+      stroke-width: 14;
+    }
+
+    .outline-soft {
+      stroke: #8fa6b2;
+      stroke-width: 6;
+      opacity: 0.65;
+    }
+
+    .scribble-dark {
+      stroke: #5f7682;
+      stroke-width: 4;
+      opacity: 0.45;
+    }
+
+    .highlight {
+      stroke: #dcebff;
+      stroke-width: 3.5;
+      opacity: 0.75;
+    }
+  </style>
+
+  <g filter="url(#roughen)">
+    <path
+      d="M255 82
+         C213 81 186 110 186 153
+         L186 284
+         C186 330 214 357 255 358
+         C296 359 325 332 325 284
+         L325 153
+         C325 109 299 83 255 82Z"
+      fill="#1788FF"
+      mask="url(#mic-slots)"
+    />
+
+    <path
+      class="line outline"
+      d="M255 82
+         C213 81 186 110 186 153
+         L186 284
+         C186 330 214 357 255 358
+         C296 359 325 332 325 284
+         L325 153
+         C325 109 299 83 255 82Z"
+    />
+
+    <path
+      class="line outline-soft"
+      d="M252 86
+         C211 86 189 111 189 151
+         L189 282
+         C189 327 216 354 255 355
+         C293 356 321 330 321 282
+         L321 151
+         C321 111 296 87 252 86Z"
+    />
+
+    <path class="line outline" d="M157 178 C178 177 204 177 228 178" />
+    <path class="line outline" d="M157 226 C181 225 206 225 229 226" />
+    <path class="line outline" d="M281 178 C304 177 331 177 355 178" />
+    <path class="line outline" d="M281 226 C303 225 328 225 355 226" />
+
+    <path class="line outline-soft" d="M161 181 C183 179 206 180 226 181" />
+    <path class="line outline-soft" d="M285 181 C308 180 329 180 351 181" />
+
+    <path
+      class="line outline"
+      d="M138 264
+         C142 337 193 393 255 394
+         C320 395 370 340 374 264"
+    />
+
+    <path
+      class="line outline-soft"
+      d="M145 269
+         C152 336 197 387 255 388
+         C314 389 359 337 367 270"
+    />
+
+    <path class="line outline" d="M255 394 C255 412 255 428 255 446" />
+    <path class="line outline-soft" d="M258 397 C258 414 258 429 258 444" />
+
+    <path class="line outline" d="M214 456 C239 455 275 455 299 456" />
+    <path class="line outline-soft" d="M220 460 C243 459 270 459 294 460" />
+
+    <path class="line scribble-dark" d="M201 104 C218 97 240 95 261 96" />
+    <path class="line scribble-dark" d="M274 96 C291 97 304 100 315 108" />
+    <path class="line scribble-dark" d="M197 258 C196 287 204 318 221 336" />
+    <path class="line scribble-dark" d="M291 336 C308 320 317 292 315 260" />
+    <path class="line scribble-dark" d="M149 287 C154 322 171 352 195 370" />
+    <path class="line scribble-dark" d="M364 287 C359 320 341 351 316 370" />
+    <path class="line scribble-dark" d="M229 465 C247 463 267 463 284 465" />
+
+    <path class="line highlight" d="M219 120 C227 116 235 112 243 108" />
+    <path class="line highlight" d="M279 113 C287 109 295 106 303 103" />
+    <path class="line highlight" d="M214 275 C223 269 233 261 241 255" />
+    <path class="line highlight" d="M277 306 C286 300 295 293 302 287" />
+    <path class="line highlight" d="M206 319 C212 315 218 311 224 307" />
+  </g>
+</svg>
