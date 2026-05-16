@@ -12,6 +12,20 @@ The current MVP lets you record audio from the main window, tray, or global shor
 - Local history, clipboard copy, and settings for retention behavior
 - Privacy-aware hidden-window notifications for transcription outcomes
 
+## Repository docs
+
+- `docs/architecture/project-structure.md` — repository map and directory responsibilities
+- `docs/architecture/frontend.md` — frontend boundaries and refactor direction
+- `docs/architecture/tauri-backend.md` — backend boundaries and refactor direction
+- `docs/contributing/validation.md` — validation commands and environment notes
+- `AGENTS.md` — short operational map for agents and contributors
+
+## Development
+
+- `npm install` — install frontend dependencies
+- `npm run dev` — start the frontend dev server
+- `npm run tauri dev` — run the desktop app in development; on Linux hosts this automatically uses the `speakex-dev` Toolbox container
+
 ## Scripts
 
 - `npm run dev` — start the frontend dev server
@@ -24,33 +38,13 @@ The current MVP lets you record audio from the main window, tray, or global shor
 
 ## Cross-platform validation
 
-SpeakEx now includes a GitHub Actions workflow at `.github/workflows/cross-platform-validation.yml` that validates the existing desktop build surface on:
+GitHub Actions validates the desktop build surface on Linux, macOS, and Windows through `.github/workflows/cross-platform-validation.yml`.
 
-- `ubuntu-latest`
-- `macos-latest`
-- `windows-latest`
-
-On every push and pull request, the workflow runs:
-
-- `npm ci`
-- `npm run check`
-- `npm run build`
-- `cargo check --manifest-path src-tauri/Cargo.toml`
-- `cargo test --manifest-path src-tauri/Cargo.toml`
-- Linux only: `cargo fmt --manifest-path src-tauri/Cargo.toml --all --check`
-- Linux only: `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
-- `npm run tauri build -- --debug --no-bundle`
-
-This validates that the frontend, Rust backend, and Tauri desktop app still compile across Linux, macOS, and Windows without requiring platform-specific release bundling in CI.
+Use `docs/contributing/validation.md` as the source of truth for local and CI validation commands. Keep README brief and operational.
 
 ## Linux packaging
 
-SpeakEx is currently configured for a Linux-first AppImage packaging path.
-
-- On Linux hosts, run the packaging build from the repo root with `npm run tauri build`; the wrapper script automatically uses the `speakex-dev` Toolbox container.
-- If you are already inside that Toolbox environment, `npm run tauri build` runs locally inside the container without nesting Toolbox calls.
-- The Linux build wrapper automatically sets `NO_STRIP=1` for `tauri build` so AppImage bundling skips the failing `linuxdeploy` strip step on `.relr.dyn` libraries.
-- When AppImage bundling succeeds, expect the final bundle under `src-tauri/target/release/bundle/appimage/`, with the release artifact appearing there as `SpeakEx_0.1.0_amd64.AppImage`.
+SpeakEx is currently configured for a Linux-first AppImage packaging path. The operational details for Toolbox, packaging validation, and environment prerequisites live in `docs/contributing/validation.md`.
 
 ## Notes
 

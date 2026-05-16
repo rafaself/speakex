@@ -77,6 +77,7 @@
               placeholder="Start your transcription..."
               on:focus={onBeginRecording}
               readonly
+              disabled={!canStartRecording}
             />
           {/if}
           <div class="input-actions">

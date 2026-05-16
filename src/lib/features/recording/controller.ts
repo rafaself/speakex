@@ -471,6 +471,7 @@ export function createRecordingController(context: RecordingControllerContext) {
 
     context.setRecordingCommandState("cancelling");
     stopRecordingStatusPolling();
+    const activeRecordingSession = context.getActiveRecordingSession();
 
     try {
       let cancelledSessionId = activeRecordingSession?.id ?? "unknown";

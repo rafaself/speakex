@@ -8,6 +8,15 @@
   import LogsSection from "$lib/components/home/LogsSection.svelte";
   import RecordingSection from "$lib/components/home/RecordingSection.svelte";
   import SettingsSection from "$lib/components/home/SettingsSection.svelte";
+  import { buildIdleAppStatus, buildIdleDetail as buildHomeIdleDetail } from "$lib/features/home/idle-status";
+  import {
+    buildRecordingShortcutStatusMessage,
+    formatDuration,
+    formatFileName,
+    resolveDetectedLanguageCodeFromHistory,
+    resolveLanguageOptionLabel,
+    type ShortcutActionState
+  } from "$lib/features/home/presenters";
   import { createHistoryController } from "$lib/features/history/controller";
   import { createLogsController } from "$lib/features/logs/controller";
   import { mapHistoryEntry } from "$lib/features/history/presenters";
@@ -34,7 +43,6 @@
     appStatus,
     createRecordingInputOptions,
     defaultRecordingInputOption,
-    getAppStatusForPhase,
     languageOptions,
     recordingInputOptions,
     settingsDraft,
@@ -54,7 +62,6 @@
   type LogsState = "loading" | "ready" | "error";
   type RecordingDevicesState = "loading" | "ready" | "error";
   type RecordingCommandState = "starting" | "stopping" | "cancelling" | null;
-  type ShortcutActionState = "idle" | "loading" | "applying" | "reapplying" | "clearing" | "error";
   type TranscriptionCommandState = "manual" | null;
 
   const fallbackRecordingLimitMs = 15 * 60 * 1000;
@@ -112,9 +119,9 @@
     latestTranscript?.language ??
     latestManualTranscriptionResult?.transcript.language ??
     selectedHistoryEntry?.language ??
-    resolveDetectedLanguageCodeFromHistory(historyEntries[0]?.languageLabel) ??
+    resolveDetectedLanguageCodeFromHistory(historyEntries[0]?.languageLabel, languageOptions) ??
     null;
-  $: detectedLanguageLabel = resolveLanguageOptionLabel(detectedLanguageCode);
+  $: detectedLanguageLabel = resolveLanguageOptionLabel(detectedLanguageCode, languageOptions);
   $: settingsLanguageOptions = languageOptions.map((option) =>
     option.value === "auto" && detectedLanguageLabel !== null
       ? { ...option, label: `Auto-detect (${detectedLanguageLabel})` }
@@ -458,25 +465,37 @@
     syncIdleStatus();
   }
 
+  function resolveCurrentWindow() {
+    try {
+      return getCurrentWindow();
+    } catch {
+      return null;
+    }
+  }
+
   onMount(() => {
-    currentWindow = getCurrentWindow();
+    currentWindow = resolveCurrentWindow();
 
     void syncWindowChromeState();
     void initializeWorkspace();
     void loadHistoryEntries();
 
-    const unlistenPromise = currentWindow.listen("tauri://resize", async () => {
+    if (currentWindow === null) {
+      return;
+    }
+
+    const unlistenResizePromise = currentWindow.listen("tauri://resize", async () => {
       isWindowMaximized = await currentWindow?.isMaximized() ?? false;
     });
 
-    const themeUnlistenPromise = currentWindow.listen("tauri://focus", async () => {
+    const unlistenFocusPromise = currentWindow.listen("tauri://focus", async () => {
       isWindowMaximized = await currentWindow?.isMaximized() ?? false;
     });
 
-    onDestroy(() => {
-      void unlistenPromise.then((unlisten) => unlisten());
-      void themeUnlistenPromise.then((unlisten) => unlisten());
-    });
+    return () => {
+      void unlistenResizePromise.then((unlisten) => unlisten());
+      void unlistenFocusPromise.then((unlisten) => unlisten());
+    };
   });
 
   onDestroy(() => {
@@ -526,38 +545,21 @@
     latestTranscript = null;
   }
 
-  function syncIdleStatus(detail = buildIdleDetail()) {
+  function syncIdleStatus(detail = buildHomeIdleDetail({
+    recordingDevicesState,
+    recordingDevicesError,
+    selectedMicrophoneUnavailable,
+    selectedMicrophoneLabel
+  })) {
     appStatus.setStatus(
-      getAppStatusForPhase("idle", {
-        detail,
-        transcriptPreview:
-          recordingDevicesState === "error"
-            ? "Microphone loading failed. Retry device loading while recording is unavailable."
-            : selectedMicrophoneUnavailable
-              ? "Choose an available microphone before starting a recording. Your saved selection stays in place until you update it."
-              : "Start a recording to capture a temporary audio file locally, then run Gemini when you are ready.",
-        inputLabel: selectedMicrophoneLabel,
-        durationLabel: "—",
-        recordingTiming: null,
-        recordedAudio: null
+      buildIdleAppStatus({
+        recordingDevicesState,
+        recordingDevicesError,
+        selectedMicrophoneUnavailable,
+        selectedMicrophoneLabel,
+        detail
       })
     );
-  }
-
-  function buildIdleDetail() {
-    if (recordingDevicesState === "loading") {
-      return "Loading available microphones before recording becomes available.";
-    }
-
-    if (recordingDevicesState === "error") {
-      return `Unable to load recording inputs: ${recordingDevicesError}`;
-    }
-
-    if (selectedMicrophoneUnavailable) {
-      return "The saved microphone is not currently available. Pick one of the loaded inputs before starting a recording.";
-    }
-
-    return `Ready to record from ${selectedMicrophoneLabel}. Stop keeps the audio file so you can run Gemini when you are ready.`;
   }
 
   function resolveSelectedDeviceName() {
@@ -573,26 +575,6 @@
       get(appStatus).recordedAudio?.maxDurationMs ??
       fallbackRecordingLimitMs
     );
-  }
-
-  function resolveLanguageOptionLabel(languageCode: string | null | undefined) {
-    if (!languageCode) {
-      return null;
-    }
-
-    return languageOptions.find((option) => option.value === languageCode)?.label ?? languageCode;
-  }
-
-  function resolveDetectedLanguageCodeFromHistory(languageValue: string | null | undefined) {
-    if (!languageValue || languageValue === "Auto / unspecified") {
-      return null;
-    }
-
-    const matchedOption = languageOptions.find(
-      (option) => option.value === languageValue || option.label === languageValue
-    );
-
-    return matchedOption?.value ?? languageValue;
   }
 
   const recordingController = createRecordingController({
@@ -686,89 +668,6 @@
 
   async function startManualTranscription() {
     await recordingController.startManualTranscription();
-  }
-
-  function buildRecordingShortcutStatusMessage(
-    actionState: ShortcutActionState,
-    status: RecordingShortcutStatus | null,
-    savedShortcut: string | null,
-    errorMessage: string
-  ): string {
-    if (actionState === "loading") {
-      return "Checking the current recording shortcut status…";
-    }
-
-    if (actionState === "applying") {
-      return "Saving the shortcut locally and applying it now…";
-    }
-
-    if (actionState === "reapplying") {
-      return "Trying the saved shortcut again…";
-    }
-
-    if (actionState === "clearing") {
-      return "Clearing the saved shortcut and unregistering it from the current runtime…";
-    }
-
-    if (actionState === "error") {
-      return errorMessage || "Unable to update the recording shortcut.";
-    }
-
-    if (status === null) {
-      return "Recording shortcut status is unavailable right now.";
-    }
-
-    if (status.state === "active") {
-      const activeShortcut = status.activeShortcut ?? status.requestedShortcut ?? "the current shortcut";
-
-      if (status.source === "default") {
-        return `No saved shortcut exists, so SpeakEx registered the default ${activeShortcut}.`;
-      }
-
-      if (status.source === "saved") {
-        return `The saved recording shortcut ${activeShortcut} is active.`;
-      }
-
-      return `The recording shortcut ${activeShortcut} is active in the current runtime.`;
-    }
-
-    if (status.state === "invalid") {
-      return status.detail ?? "The saved recording shortcut could not be parsed.";
-    }
-
-    if (status.state === "unavailable") {
-      return (
-        status.detail ??
-        "The requested recording shortcut could not be registered, likely because another app or the system already uses it."
-      );
-    }
-
-    if (savedShortcut === null) {
-      return "No shortcut override is saved. Startup still tries the default Ctrl+Alt+A when no saved shortcut exists.";
-    }
-
-    return "The saved recording shortcut is not active right now.";
-  }
-
-  function formatDuration(durationMs: number | null): string {
-    if (durationMs === null || durationMs < 0) {
-      return "—";
-    }
-
-    const totalSeconds = Math.round(durationMs / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-
-    if (hours > 0) {
-      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    }
-
-    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-
-  function formatFileName(path: string): string {
-    return path.split(/[/\\\\]/u).pop() ?? path;
   }
 </script>
 

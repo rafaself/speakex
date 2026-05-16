@@ -75,13 +75,7 @@
       }
 
       ctx!.beginPath();
-      // @ts-expect-error roundRect is available in modern browsers
-      if (ctx!.roundRect) {
-        // @ts-expect-error roundRect is available in modern browsers
-        ctx!.roundRect(x, y, actualBarWidth, barHeight, actualBarWidth / 2);
-      } else {
-        ctx!.rect(x, y, actualBarWidth, barHeight);
-      }
+      ctx!.roundRect(x, y, actualBarWidth, barHeight, actualBarWidth / 2);
       ctx!.fill();
     });
   }
@@ -116,7 +110,7 @@
 </script>
 
 <div class="waveform-container">
-  <canvas bind:this={canvas} />
+  <canvas bind:this={canvas}></canvas>
 </div>
 
 <style>
