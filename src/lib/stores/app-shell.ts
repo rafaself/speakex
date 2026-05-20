@@ -205,7 +205,11 @@ function createAppStatusStore() {
 
 const initialSettingsDraft = (): SettingsDraft => createDefaultAppSettings();
 
-export type DraftToggleKey = "autoCopy" | "saveAudioFiles" | "saveTranscriptionHistory";
+export type DraftToggleKey =
+  | "autoCopy"
+  | "saveAudioFiles"
+  | "saveTranscriptionHistory"
+  | "pasteAfterShortcutRecording";
 
 function createSettingsDraftStore() {
   const { subscribe, set, update } = writable(initialSettingsDraft());

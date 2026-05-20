@@ -1,18 +1,20 @@
+mod app_settings;
+mod commands;
 pub mod history_database;
 pub mod history_repository;
 pub mod manual_flow;
-mod commands;
 mod notifications;
 pub mod recorder;
 pub mod secret_store;
 pub mod shortcut;
+mod shortcut_flow;
 pub mod transcription;
 pub mod tray;
 
-use std::io;
 use recorder::RecorderService;
 use secret_store::SecretStoreService;
 use shortcut::ShortcutService;
+use std::io;
 use tauri::{Manager, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -21,6 +21,8 @@ export interface RunCompletedRecordingTranscriptionResult {
   historyError: string | null;
   copiedToClipboard: boolean;
   clipboardError: string | null;
+  pastedToActiveInput: boolean;
+  pasteError: string | null;
   audioDeleted: boolean;
   audioDeleteError: string | null;
   retainedAudioPath: string | null;

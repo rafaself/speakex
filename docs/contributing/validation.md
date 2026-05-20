@@ -40,6 +40,8 @@ For broader desktop validation, also run:
 - On Linux hosts, `npm run tauri dev` and `npm run tauri build` go through `scripts/run-tauri.mjs`.
 - That wrapper expects the `speakex-dev` Toolbox container unless it is already running inside a compatible container.
 - The build wrapper sets `NO_STRIP=1` for Linux packaging builds to avoid the known AppImage strip failure on `.relr.dyn` libraries.
+- On Fedora, the tray runtime dependency is `libayatana-appindicator-gtk3`.
+- On Fedora Workstation with GNOME, the tray icon is not shown by default; users need the AppIndicator/KStatusNotifierItem shell extension (`gnome-shell-extension-appindicator`) for the SpeakEx tray to appear.
 
 ## Environment Limitations
 

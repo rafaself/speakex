@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 
@@ -157,13 +157,23 @@ describe("+page integration", () => {
       activeShortcut: null,
       detail: null
     });
-    shortcutMocks.applyRecordingShortcut.mockResolvedValue({
-      state: "active",
-      source: "saved",
-      requestedShortcut: "CommandOrControl+Alt+A",
-      activeShortcut: "CommandOrControl+Alt+A",
-      detail: null
-    });
+    shortcutMocks.applyRecordingShortcut.mockImplementation(async (shortcut: string | null) =>
+      shortcut === null
+        ? {
+            state: "unconfigured",
+            source: "none",
+            requestedShortcut: null,
+            activeShortcut: null,
+            detail: null
+          }
+        : {
+            state: "active",
+            source: "saved",
+            requestedShortcut: shortcut,
+            activeShortcut: shortcut,
+            detail: null
+          }
+    );
     recordingMocks.listRecordingInputDevices.mockResolvedValue([
       { name: "USB Mic", label: "USB Mic", isDefault: true }
     ]);
@@ -357,40 +367,58 @@ describe("+page integration", () => {
       expect(secretStoreMocks.saveGeminiApiKey).toHaveBeenCalledWith("api-key-123");
     });
 
-    const shortcutInput = screen.getByPlaceholderText("e.g. CommandOrControl+Alt+A");
-    await user.clear(shortcutInput);
-    await user.type(shortcutInput, "CommandOrControl+Alt+A");
-    await user.click(screen.getByRole("button", { name: "Save and apply" }));
+    const shortcutCapture = screen.getByRole("button", { name: "Recording shortcut" });
+    await user.click(shortcutCapture);
+    await fireEvent.keyDown(shortcutCapture, {
+      key: "r",
+      code: "KeyR",
+      ctrlKey: true,
+      altKey: true
+    });
+    await user.click(screen.getByRole("button", { name: "Save and activate" }));
 
     await waitFor(() => {
       expect(settingsMocks.saveAppSettings).toHaveBeenCalledWith({
         ...updatedSettings,
-        shortcut: "CommandOrControl+Alt+A"
+        shortcut: "CommandOrControl+Alt+R"
       });
     });
-    expect(shortcutMocks.applyRecordingShortcut).toHaveBeenCalledWith("CommandOrControl+Alt+A");
+    expect(shortcutMocks.applyRecordingShortcut).toHaveBeenCalledWith("CommandOrControl+Alt+R");
+
+    await user.click(screen.getByRole("button", { name: "Toggle auto-paste outside SpeakEx" }));
+
+    await waitFor(() => {
+      expect(settingsMocks.saveAppSettings).toHaveBeenCalledWith({
+        ...updatedSettings,
+        shortcut: "CommandOrControl+Alt+R",
+        pasteAfterShortcutRecording: true
+      });
+    });
 
     await user.click(screen.getByRole("button", { name: "Toggle save audio files" }));
 
     await waitFor(() => {
       expect(settingsMocks.saveAppSettings).toHaveBeenCalledWith({
         ...updatedSettings,
-        saveAudioFiles: true
+        saveAudioFiles: true,
+        shortcut: "CommandOrControl+Alt+R",
+        pasteAfterShortcutRecording: true
       });
     });
 
-    await user.click(screen.getByRole("button", { name: "Re-apply saved shortcut" }));
+    await user.click(screen.getByRole("button", { name: "Apply saved shortcut" }));
 
     await waitFor(() => {
-      expect(shortcutMocks.applyRecordingShortcut).toHaveBeenCalledWith("CommandOrControl+Alt+A");
+      expect(shortcutMocks.applyRecordingShortcut).toHaveBeenCalledWith("CommandOrControl+Alt+R");
     });
 
-    await user.click(screen.getByRole("button", { name: "Clear shortcut" }));
+    await user.click(screen.getByRole("button", { name: "Remove shortcut" }));
 
     await waitFor(() => {
       expect(settingsMocks.saveAppSettings).toHaveBeenCalledWith({
         ...updatedSettings,
         saveAudioFiles: true,
+        pasteAfterShortcutRecording: true,
         shortcut: null
       });
     });

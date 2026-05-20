@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fade } from "svelte/transition";
 
+  import { getRecordingShortcutDisplayTokens } from "$lib/features/shortcut/presenter";
   import type { Transcript } from "$lib/native/transcription";
   import type { RecordedAudioMetadata } from "$lib/types/app-shell";
 
@@ -19,6 +20,7 @@
   export let canRunManualTranscription = false;
   export let manualTranscriptionActionLabel = "Run transcription";
   export let geminiApiKeyPresence = false;
+  export let recordingShortcut: string | null = null;
   export let onBeginRecording: () => void;
   export let onDiscardRecording: () => void;
   export let onConfirmRecordingAndTranscribe: () => void;
@@ -28,6 +30,7 @@
 
   let editedTranscriptText = "";
 
+  $: recordingShortcutTokens = getRecordingShortcutDisplayTokens(recordingShortcut);
   $: if (latestTranscript) {
     editedTranscriptText = latestTranscript.text;
   }
@@ -171,6 +174,17 @@
           </div>
         </div>
       </div>
+      {#if recordingShortcutTokens.length > 0 && latestTranscript === null}
+        <p class="shortcut-callout">
+          <span class="shortcut-callout-copy">Start or stop recording with</span>
+          <span class="shortcut-token-list" aria-hidden="true">
+            {#each recordingShortcutTokens as token}
+              <kbd class="shortcut-token">{token}</kbd>
+            {/each}
+          </span>
+          <span class="shortcut-callout-copy">from anywhere.</span>
+        </p>
+      {/if}
     </div>
   </div>
 
@@ -288,6 +302,21 @@
   .input-container {
     width: 100%;
     position: relative;
+  }
+
+  .shortcut-callout {
+    margin: 1rem 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    color: #bfbfc6;
+    font-size: 0.92rem;
+  }
+
+  .shortcut-callout-copy {
+    line-height: 1.5;
   }
 
   .chat-input-wrapper {
@@ -421,6 +450,26 @@
     color: #d3ffe2;
   }
 
+  .shortcut-token-list {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .shortcut-token {
+    min-width: 2rem;
+    padding: 0.35rem 0.55rem;
+    border-radius: 9px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.06);
+    color: #f5f5f5;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: center;
+  }
+
   .phase-summary {
     display: flex;
     flex-direction: column;
@@ -508,6 +557,10 @@
   }
 
   @media (max-width: 640px) {
+    .shortcut-callout {
+      font-size: 0.85rem;
+    }
+
     .summary-grid {
       grid-template-columns: 1fr;
     }

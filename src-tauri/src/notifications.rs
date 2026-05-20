@@ -7,6 +7,9 @@ const COMPLETION_TITLE: &str = "Transcription complete";
 const COMPLETION_BODY: &str = "Your recording has been transcribed.";
 const FAILURE_TITLE: &str = "Transcription failed";
 const FAILURE_BODY: &str = "SpeakEx could not transcribe your recording. Open the app for details.";
+const SHORTCUT_FAILURE_TITLE: &str = "Shortcut paste failed";
+const SHORTCUT_FAILURE_BODY: &str =
+    "SpeakEx could not finish pasting the shortcut transcription. Open the app for details.";
 
 pub fn notify_manual_transcription_completed<R: Runtime>(app: &AppHandle<R>) {
     if show_if_main_window_hidden(app, COMPLETION_TITLE, COMPLETION_BODY).is_err() {
@@ -17,6 +20,12 @@ pub fn notify_manual_transcription_completed<R: Runtime>(app: &AppHandle<R>) {
 pub fn notify_manual_transcription_failed<R: Runtime>(app: &AppHandle<R>) {
     if show_if_main_window_hidden(app, FAILURE_TITLE, notification_failure_body()).is_err() {
         eprintln!("failed to send transcription failure notification");
+    }
+}
+
+pub fn notify_shortcut_transcription_failed<R: Runtime>(app: &AppHandle<R>) {
+    if show_if_main_window_inactive(app, SHORTCUT_FAILURE_TITLE, SHORTCUT_FAILURE_BODY).is_err() {
+        eprintln!("failed to send shortcut transcription failure notification");
     }
 }
 
@@ -48,6 +57,42 @@ fn should_show_for_hidden_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<
         .map_err(|error| format!("failed to read main window visibility: {error}"))
 }
 
+fn show_if_main_window_inactive<R: Runtime>(
+    app: &AppHandle<R>,
+    title: &str,
+    body: impl Into<String>,
+) -> Result<(), String> {
+    if !should_show_for_inactive_main_window(app)? {
+        return Ok(());
+    }
+
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|error| format!("notification delivery failed: {error}"))
+}
+
+fn should_show_for_inactive_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return Ok(true);
+    };
+
+    let is_visible = window
+        .is_visible()
+        .map_err(|error| format!("failed to read main window visibility: {error}"))?;
+
+    if !is_visible {
+        return Ok(true);
+    }
+
+    window
+        .is_focused()
+        .map(|is_focused| !is_focused)
+        .map_err(|error| format!("failed to read main window focus: {error}"))
+}
+
 fn should_show_for_window_visibility(is_visible: bool) -> bool {
     !is_visible
 }
@@ -58,7 +103,10 @@ fn notification_failure_body() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{notification_failure_body, should_show_for_window_visibility, FAILURE_BODY};
+    use super::{
+        notification_failure_body, should_show_for_window_visibility, FAILURE_BODY,
+        SHORTCUT_FAILURE_BODY,
+    };
 
     #[test]
     fn only_shows_notifications_when_main_window_is_hidden() {
@@ -69,5 +117,10 @@ mod tests {
     #[test]
     fn failure_notifications_use_generic_privacy_safe_body() {
         assert_eq!(notification_failure_body(), FAILURE_BODY.to_string());
+    }
+
+    #[test]
+    fn shortcut_failure_notifications_use_generic_body() {
+        assert_eq!(SHORTCUT_FAILURE_BODY, "SpeakEx could not finish pasting the shortcut transcription. Open the app for details.");
     }
 }

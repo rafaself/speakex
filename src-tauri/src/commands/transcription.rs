@@ -1,3 +1,4 @@
+use crate::app_settings::load_transcription_settings;
 use crate::history_database::HistoryDatabase;
 use crate::history_repository::HistoryRepository;
 use crate::manual_flow::{
@@ -12,15 +13,6 @@ use crate::transcription::{
 use serde::Deserialize;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
-use tauri_plugin_store::StoreExt;
-
-#[derive(Clone, Debug)]
-struct TranscriptionSettings {
-    auto_copy: bool,
-    save_transcription_history: bool,
-    save_audio_files: bool,
-    default_language: Option<String>,
-}
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +65,7 @@ pub async fn run_completed_recording_transcription(
                 auto_copy: settings.auto_copy,
                 save_audio_files: settings.save_audio_files,
                 save_transcription_history: settings.save_transcription_history,
+                paste_after_transcription: false,
             },
         )
         .await
@@ -91,34 +84,4 @@ pub async fn run_completed_recording_transcription(
 #[tauri::command]
 pub fn has_completed_recording_audio(request: RunCompletedRecordingTranscriptionRequest) -> bool {
     local_audio_file_exists(&request.audio_input.path)
-}
-
-fn load_transcription_settings(app: &AppHandle) -> Result<TranscriptionSettings, String> {
-    let store = app
-        .store("settings.json")
-        .map_err(|error| format!("failed to open settings store: {error}"))?;
-
-    let auto_copy = store
-        .get("auto_copy")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(true);
-    let save_audio_files = store
-        .get("save_audio_files")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    let save_transcription_history = store
-        .get("save_transcription_history")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(true);
-    let default_language = store
-        .get("default_language")
-        .and_then(|value| value.as_str().map(str::trim).map(ToOwned::to_owned))
-        .filter(|value| !value.is_empty() && value != "auto");
-
-    Ok(TranscriptionSettings {
-        auto_copy,
-        save_transcription_history,
-        save_audio_files,
-        default_language,
-    })
 }

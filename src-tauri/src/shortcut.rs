@@ -1,14 +1,10 @@
 use std::sync::Mutex;
 
+use crate::app_settings::load_recording_shortcut;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState};
-use tauri_plugin_store::StoreExt;
 
-use crate::tray;
-
-const SETTINGS_STORE_PATH: &str = "settings.json";
-const SHORTCUT_KEY: &str = "shortcut";
 const DEFAULT_RECORDING_SHORTCUT: &str = "Ctrl+Alt+A";
 
 #[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
@@ -191,22 +187,14 @@ fn handle_recording_shortcut_event<R: Runtime>(
     _shortcut: &Shortcut,
     event: ShortcutEvent,
 ) {
-    if event.state == ShortcutState::Pressed && tray::toggle_recording(app).is_err() {
+    if event.state == ShortcutState::Pressed && crate::shortcut_flow::toggle_recording(app).is_err()
+    {
         eprintln!("failed to toggle recording from the global shortcut");
     }
 }
 
 fn load_saved_recording_shortcut<R: Runtime>(app: &AppHandle<R>) -> Result<Option<String>, String> {
-    let store = app
-        .store(SETTINGS_STORE_PATH)
-        .map_err(|error| format!("failed to open settings store: {error}"))?;
-
-    Ok(normalize_shortcut_value(
-        store
-            .get(SHORTCUT_KEY)
-            .as_ref()
-            .and_then(|value| value.as_str()),
-    ))
+    load_recording_shortcut(app)
 }
 
 fn parse_shortcut(shortcut: &str) -> Result<Shortcut, tauri_plugin_global_shortcut::Error> {

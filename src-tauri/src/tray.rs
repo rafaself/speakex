@@ -1,17 +1,15 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::app_settings::load_selected_microphone_name;
 use crate::recorder::{RecorderPhase, RecorderService, RecorderSnapshot, RecordingInputDevice};
 use tauri::{
     menu::{MenuBuilder, MenuItem, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, Runtime,
 };
-use tauri_plugin_store::StoreExt;
 
 pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_ID: &str = "main-tray";
-const SETTINGS_STORE_PATH: &str = "settings.json";
-const SELECTED_MICROPHONE_KEY: &str = "selected_microphone";
 const SHOW_APP_MENU_ID: &str = "tray-show-main-window";
 const START_RECORDING_MENU_ID: &str = "tray-start-recording";
 const STOP_RECORDING_MENU_ID: &str = "tray-stop-recording";
@@ -359,18 +357,7 @@ fn preferred_input_available<R: Runtime>(
 }
 
 fn load_preferred_microphone_name<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-    match app.store(SETTINGS_STORE_PATH) {
-        Ok(store) => {
-            let stored_value = store.get(SELECTED_MICROPHONE_KEY);
-            normalize_preferred_microphone_name(
-                stored_value.as_ref().and_then(|value| value.as_str()),
-            )
-        }
-        Err(_) => {
-            eprintln!("failed to load tray recording settings");
-            None
-        }
-    }
+    load_selected_microphone_name(app)
 }
 
 fn normalize_preferred_microphone_name(value: Option<&str>) -> Option<String> {

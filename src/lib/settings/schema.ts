@@ -6,6 +6,7 @@ export interface AppSettings {
   provider: ProviderId;
   defaultLanguage: string;
   shortcut: string | null;
+  pasteAfterShortcutRecording: boolean;
   autoCopy: boolean;
   saveAudioFiles: boolean;
   saveTranscriptionHistory: boolean;
@@ -16,6 +17,7 @@ export interface StoredAppSettings {
   default_provider: ProviderId;
   default_language: string;
   shortcut: string | null;
+  paste_after_shortcut_recording: boolean;
   auto_copy: boolean;
   save_audio_files: boolean;
   save_transcription_history: boolean;
@@ -28,6 +30,7 @@ export const appSettingsStoreKeys = {
   provider: "default_provider",
   defaultLanguage: "default_language",
   shortcut: "shortcut",
+  pasteAfterShortcutRecording: "paste_after_shortcut_recording",
   autoCopy: "auto_copy",
   saveAudioFiles: "save_audio_files",
   saveTranscriptionHistory: "save_transcription_history",
@@ -42,6 +45,7 @@ export const defaultAppSettings: AppSettings = Object.freeze({
   provider: "gemini",
   defaultLanguage: "auto",
   shortcut: null,
+  pasteAfterShortcutRecording: false,
   autoCopy: true,
   saveAudioFiles: false,
   saveTranscriptionHistory: false,
@@ -59,6 +63,10 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | null | und
     provider: normalizeProvider(value.provider),
     defaultLanguage: normalizeStringSetting(value.defaultLanguage, defaultAppSettings.defaultLanguage),
     shortcut: normalizeOptionalStringSetting(value.shortcut),
+    pasteAfterShortcutRecording: normalizeBooleanSetting(
+      value.pasteAfterShortcutRecording,
+      defaultAppSettings.pasteAfterShortcutRecording
+    ),
     autoCopy: normalizeBooleanSetting(value.autoCopy, defaultAppSettings.autoCopy),
     saveAudioFiles: normalizeBooleanSetting(value.saveAudioFiles, defaultAppSettings.saveAudioFiles),
     saveTranscriptionHistory: normalizeBooleanSetting(
@@ -81,6 +89,10 @@ export function normalizeStoredAppSettings(
     provider: normalizeProvider(value.default_provider),
     defaultLanguage: normalizeStringSetting(value.default_language, defaultAppSettings.defaultLanguage),
     shortcut: normalizeOptionalStringSetting(value.shortcut),
+    pasteAfterShortcutRecording: normalizeBooleanSetting(
+      value.paste_after_shortcut_recording,
+      defaultAppSettings.pasteAfterShortcutRecording
+    ),
     autoCopy: normalizeBooleanSetting(value.auto_copy, defaultAppSettings.autoCopy),
     saveAudioFiles: normalizeBooleanSetting(value.save_audio_files, defaultAppSettings.saveAudioFiles),
     saveTranscriptionHistory: normalizeBooleanSetting(
@@ -101,6 +113,7 @@ export function toStoredAppSettings(settings: AppSettings): StoredAppSettings {
     default_provider: normalized.provider,
     default_language: normalized.defaultLanguage,
     shortcut: normalized.shortcut,
+    paste_after_shortcut_recording: normalized.pasteAfterShortcutRecording,
     auto_copy: normalized.autoCopy,
     save_audio_files: normalized.saveAudioFiles,
     save_transcription_history: normalized.saveTranscriptionHistory,

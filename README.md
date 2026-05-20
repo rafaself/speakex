@@ -46,6 +46,8 @@ Use `docs/contributing/validation.md` as the source of truth for local and CI va
 
 SpeakEx is currently configured for a Linux-first AppImage packaging path. The operational details for Toolbox, packaging validation, and environment prerequisites live in `docs/contributing/validation.md`.
 
+On Fedora, tray support depends on the desktop environment: KDE/Xfce-style trays work normally, while Fedora Workstation GNOME needs the AppIndicator/KStatusNotifierItem extension (`gnome-shell-extension-appindicator`) to show the SpeakEx tray icon.
+
 ## Notes
 
 SpeakEx is currently packaged and validated as a desktop MVP with a Linux-first release path and cross-platform no-bundle CI checks. Detailed transcription state, settings, and history stay on the local machine, while Gemini is the current transcription provider for completed recordings.

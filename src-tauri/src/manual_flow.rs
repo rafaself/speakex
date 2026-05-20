@@ -1,5 +1,9 @@
 use crate::history_repository::{HistoryRepository, NewHistoryTranscription};
 use crate::transcription::{AudioInput, Transcript, TranscriptionOptions, TranscriptionService};
+use enigo::{
+    Direction::{Click, Press, Release},
+    Enigo, Key, Keyboard, Settings as InputSettings,
+};
 use serde::Serialize;
 use std::{
     fs,
@@ -8,7 +12,7 @@ use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, Runtime};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,6 +21,7 @@ pub struct ManualTranscriptionSettings {
     pub auto_copy: bool,
     pub save_audio_files: bool,
     pub save_transcription_history: bool,
+    pub paste_after_transcription: bool,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -28,6 +33,8 @@ pub struct RunCompletedRecordingTranscriptionResult {
     pub history_error: Option<String>,
     pub copied_to_clipboard: bool,
     pub clipboard_error: Option<String>,
+    pub pasted_to_active_input: bool,
+    pub paste_error: Option<String>,
     pub audio_deleted: bool,
     pub audio_delete_error: Option<String>,
     pub retained_audio_path: Option<PathBuf>,
@@ -38,19 +45,21 @@ pub struct ManualTranscriptionFlow {
     transcription_service: TranscriptionService,
     history_repository: Arc<dyn HistorySink>,
     clipboard_writer: Arc<dyn ClipboardSink>,
+    input_paster: Arc<dyn InputPasteSink>,
     file_system: Arc<dyn FileSystem>,
 }
 
 impl ManualTranscriptionFlow {
-    pub fn new(
+    pub fn new<R: Runtime>(
         transcription_service: TranscriptionService,
         history_repository: HistoryRepository,
-        app: AppHandle,
+        app: AppHandle<R>,
     ) -> Self {
         Self::with_dependencies(
             transcription_service,
             Arc::new(history_repository),
             Arc::new(AppClipboardSink::new(app)),
+            Arc::new(ActiveInputPaster),
             Arc::new(StdFileSystem),
         )
     }
@@ -59,12 +68,14 @@ impl ManualTranscriptionFlow {
         transcription_service: TranscriptionService,
         history_repository: Arc<dyn HistorySink>,
         clipboard_writer: Arc<dyn ClipboardSink>,
+        input_paster: Arc<dyn InputPasteSink>,
         file_system: Arc<dyn FileSystem>,
     ) -> Self {
         Self {
             transcription_service,
             history_repository,
             clipboard_writer,
+            input_paster,
             file_system,
         }
     }
@@ -94,12 +105,21 @@ impl ManualTranscriptionFlow {
             .await
             .map_err(|error| format!("Gemini transcription failed: {error}"))?;
 
-        let clipboard_error = if settings.auto_copy {
+        let should_copy_to_clipboard = settings.auto_copy || settings.paste_after_transcription;
+        let clipboard_error = if should_copy_to_clipboard {
             self.clipboard_writer.write_text(&transcript.text).err()
         } else {
             None
         };
-        let copied_to_clipboard = settings.auto_copy && clipboard_error.is_none();
+        let copied_to_clipboard = should_copy_to_clipboard && clipboard_error.is_none();
+        let paste_error = if settings.paste_after_transcription && clipboard_error.is_none() {
+            self.input_paster.paste_current_clipboard().err()
+        } else {
+            None
+        };
+        let pasted_to_active_input = settings.paste_after_transcription
+            && clipboard_error.is_none()
+            && paste_error.is_none();
 
         let audio_cleanup = if settings.save_audio_files {
             AudioCleanupOutcome::retained(audio_input.path.clone())
@@ -113,6 +133,7 @@ impl ManualTranscriptionFlow {
                 &transcript,
                 copied_to_clipboard,
                 clipboard_error.as_deref(),
+                paste_error.as_deref(),
                 &audio_cleanup,
             )
         } else {
@@ -126,6 +147,8 @@ impl ManualTranscriptionFlow {
             history_error: history_outcome.error,
             copied_to_clipboard,
             clipboard_error,
+            pasted_to_active_input,
+            paste_error,
             audio_deleted: audio_cleanup.deleted,
             audio_delete_error: audio_cleanup.error,
             retained_audio_path: audio_cleanup.retained_audio_path,
@@ -138,6 +161,7 @@ impl ManualTranscriptionFlow {
         transcript: &Transcript,
         copied_to_clipboard: bool,
         clipboard_error: Option<&str>,
+        paste_error: Option<&str>,
         audio_cleanup: &AudioCleanupOutcome,
     ) -> HistorySaveOutcome {
         let id = match generate_history_entry_id(&transcript.provider) {
@@ -148,7 +172,8 @@ impl ManualTranscriptionFlow {
             Ok(duration_ms) => duration_ms,
             Err(error) => return HistorySaveOutcome::failed(error),
         };
-        let error = join_outcome_errors(clipboard_error, audio_cleanup.error.as_deref());
+        let error =
+            join_outcome_errors(&[clipboard_error, paste_error, audio_cleanup.error.as_deref()]);
         let entry = NewHistoryTranscription {
             id: id.clone(),
             text: transcript.text.clone(),
@@ -188,22 +213,47 @@ trait ClipboardSink: Send + Sync {
     fn write_text(&self, text: &str) -> Result<(), String>;
 }
 
-struct AppClipboardSink {
-    app: AppHandle,
+trait InputPasteSink: Send + Sync {
+    fn paste_current_clipboard(&self) -> Result<(), String>;
 }
 
-impl AppClipboardSink {
-    fn new(app: AppHandle) -> Self {
+struct AppClipboardSink<R: Runtime> {
+    app: AppHandle<R>,
+}
+
+impl<R: Runtime> AppClipboardSink<R> {
+    fn new(app: AppHandle<R>) -> Self {
         Self { app }
     }
 }
 
-impl ClipboardSink for AppClipboardSink {
+impl<R: Runtime> ClipboardSink for AppClipboardSink<R> {
     fn write_text(&self, text: &str) -> Result<(), String> {
         self.app
             .clipboard()
             .write_text(text.to_string())
             .map_err(|error| format!("failed to copy transcript to the system clipboard: {error}"))
+    }
+}
+
+struct ActiveInputPaster;
+
+impl InputPasteSink for ActiveInputPaster {
+    fn paste_current_clipboard(&self) -> Result<(), String> {
+        let mut enigo = Enigo::new(&InputSettings::default())
+            .map_err(|error| format!("failed to start keyboard automation: {error}"))?;
+
+        enigo
+            .key(paste_modifier_key(), Press)
+            .map_err(|error| format!("failed to press the paste modifier key: {error}"))?;
+        enigo
+            .key(Key::Unicode('v'), Click)
+            .map_err(|error| format!("failed to press the paste key: {error}"))?;
+        enigo
+            .key(paste_modifier_key(), Release)
+            .map_err(|error| format!("failed to release the paste modifier key: {error}"))?;
+
+        Ok(())
     }
 }
 
@@ -319,11 +369,11 @@ fn generate_history_entry_id(provider: &str) -> Result<String, String> {
     ))
 }
 
-fn join_outcome_errors(first: Option<&str>, second: Option<&str>) -> Option<String> {
-    let errors = [first, second]
-        .into_iter()
+fn join_outcome_errors(values: &[Option<&str>]) -> Option<String> {
+    let errors = values
+        .iter()
         .flatten()
-        .map(str::trim)
+        .map(|value| value.trim())
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
@@ -331,10 +381,20 @@ fn join_outcome_errors(first: Option<&str>, second: Option<&str>) -> Option<Stri
     (!errors.is_empty()).then(|| errors.join("; "))
 }
 
+#[cfg(target_os = "macos")]
+fn paste_modifier_key() -> Key {
+    Key::Meta
+}
+
+#[cfg(not(target_os = "macos"))]
+fn paste_modifier_key() -> Key {
+    Key::Control
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        ClipboardSink, FileSystem, HistorySink, ManualTranscriptionFlow,
+        ClipboardSink, FileSystem, HistorySink, InputPasteSink, ManualTranscriptionFlow,
         ManualTranscriptionSettings,
     };
     use crate::history_repository::NewHistoryTranscription;
@@ -356,6 +416,7 @@ mod tests {
             Arc::new(FakeTranscriptionProvider::succeed_with("Transcript text")),
             history.clone(),
             clipboard.clone(),
+            Arc::new(FakeInputPaster::default()),
             file_system.clone(),
         );
         let audio_input = AudioInput::new(PathBuf::from("recording.wav"), "audio/wav", Some(3210));
@@ -367,6 +428,7 @@ mod tests {
                 auto_copy: true,
                 save_audio_files: false,
                 save_transcription_history: true,
+                paste_after_transcription: false,
             },
         ))
         .expect("manual flow should succeed");
@@ -419,6 +481,7 @@ mod tests {
             Arc::new(FakeTranscriptionProvider::succeed_with("Transcript text")),
             history.clone(),
             clipboard.clone(),
+            Arc::new(FakeInputPaster::default()),
             file_system.clone(),
         );
         let audio_input = AudioInput::new(PathBuf::from("recording.wav"), "audio/wav", Some(3210));
@@ -430,6 +493,7 @@ mod tests {
                 auto_copy: false,
                 save_audio_files: true,
                 save_transcription_history: false,
+                paste_after_transcription: false,
             },
         ))
         .expect("manual flow should succeed");
@@ -477,6 +541,7 @@ mod tests {
             Arc::new(FakeTranscriptionProvider::succeed_with("Transcript text")),
             history.clone(),
             clipboard,
+            Arc::new(FakeInputPaster::default()),
             file_system,
         );
         let audio_input = AudioInput::new(PathBuf::from("recording.wav"), "audio/wav", Some(3210));
@@ -488,6 +553,7 @@ mod tests {
                 auto_copy: true,
                 save_audio_files: false,
                 save_transcription_history: true,
+                paste_after_transcription: false,
             },
         ))
         .expect("manual flow should keep transcript results even when side effects fail");
@@ -534,6 +600,7 @@ mod tests {
             Arc::new(FakeTranscriptionProvider::succeed_with("Transcript text")),
             history.clone(),
             Arc::new(FakeClipboard::default()),
+            Arc::new(FakeInputPaster::default()),
             Arc::new(FakeFileSystem::default()),
         );
 
@@ -544,6 +611,7 @@ mod tests {
                 auto_copy: false,
                 save_audio_files: false,
                 save_transcription_history: true,
+                paste_after_transcription: false,
             },
         ))
         .expect("manual flow should still return the transcript");
@@ -573,6 +641,7 @@ mod tests {
             Arc::new(FakeTranscriptionProvider::succeed_with("Transcript text")),
             history.clone(),
             clipboard.clone(),
+            Arc::new(FakeInputPaster::default()),
             file_system.clone(),
         );
 
@@ -583,6 +652,7 @@ mod tests {
                 auto_copy: true,
                 save_audio_files: false,
                 save_transcription_history: true,
+                paste_after_transcription: false,
             },
         ))
         .expect_err("manual flow should fail when the local audio file is missing");
@@ -608,16 +678,97 @@ mod tests {
             .is_empty());
     }
 
+    #[test]
+    fn run_pastes_after_copying_when_requested() {
+        let clipboard = Arc::new(FakeClipboard::default());
+        let input_paster = Arc::new(FakeInputPaster::default());
+        let flow = manual_flow_for_tests(
+            Arc::new(FakeTranscriptionProvider::succeed_with("Transcript text")),
+            Arc::new(FakeHistoryRepository::default()),
+            clipboard.clone(),
+            input_paster.clone(),
+            Arc::new(FakeFileSystem::default()),
+        );
+
+        let result = tauri::async_runtime::block_on(flow.run(
+            AudioInput::new(PathBuf::from("recording.wav"), "audio/wav", Some(3210)),
+            ManualTranscriptionSettings {
+                default_language: None,
+                auto_copy: false,
+                save_audio_files: false,
+                save_transcription_history: false,
+                paste_after_transcription: true,
+            },
+        ))
+        .expect("manual flow should paste after transcribing");
+
+        assert!(result.copied_to_clipboard);
+        assert!(result.pasted_to_active_input);
+        assert_eq!(result.clipboard_error, None);
+        assert_eq!(result.paste_error, None);
+        assert_eq!(
+            clipboard
+                .writes
+                .lock()
+                .expect("clipboard writes lock should succeed")
+                .as_slice(),
+            &[String::from("Transcript text")]
+        );
+        assert_eq!(
+            *input_paster
+                .paste_calls
+                .lock()
+                .expect("paste calls lock should succeed"),
+            1
+        );
+    }
+
+    #[test]
+    fn run_surfaces_non_fatal_paste_errors() {
+        let input_paster = Arc::new(FakeInputPaster {
+            error: Mutex::new(Some("simulated input denied".to_string())),
+            ..Default::default()
+        });
+        let flow = manual_flow_for_tests(
+            Arc::new(FakeTranscriptionProvider::succeed_with("Transcript text")),
+            Arc::new(FakeHistoryRepository::default()),
+            Arc::new(FakeClipboard::default()),
+            input_paster,
+            Arc::new(FakeFileSystem::default()),
+        );
+
+        let result = tauri::async_runtime::block_on(flow.run(
+            AudioInput::new(PathBuf::from("recording.wav"), "audio/wav", Some(3210)),
+            ManualTranscriptionSettings {
+                default_language: None,
+                auto_copy: false,
+                save_audio_files: false,
+                save_transcription_history: false,
+                paste_after_transcription: true,
+            },
+        ))
+        .expect("manual flow should keep the transcript when paste fails");
+
+        assert!(result.copied_to_clipboard);
+        assert!(!result.pasted_to_active_input);
+        assert_eq!(
+            result.paste_error.as_deref(),
+            Some("simulated input denied")
+        );
+    }
+
     fn manual_flow_for_tests(
         provider: Arc<dyn TranscriptionProvider>,
         history_repository: Arc<dyn HistorySink>,
         clipboard_writer: Arc<dyn ClipboardSink>,
+        input_paster: Arc<dyn InputPasteSink>,
         file_system: Arc<dyn FileSystem>,
     ) -> ManualTranscriptionFlow {
         ManualTranscriptionFlow::with_dependencies(
             TranscriptionService::new(provider),
             history_repository,
             clipboard_writer,
+            input_paster,
             file_system,
         )
     }
@@ -700,6 +851,27 @@ mod tests {
                 .lock()
                 .expect("writes lock should succeed")
                 .push(text.to_string());
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct FakeInputPaster {
+        paste_calls: Mutex<u32>,
+        error: Mutex<Option<String>>,
+    }
+
+    impl InputPasteSink for FakeInputPaster {
+        fn paste_current_clipboard(&self) -> Result<(), String> {
+            *self
+                .paste_calls
+                .lock()
+                .expect("paste calls lock should succeed") += 1;
+
+            if let Some(error) = self.error.lock().expect("error lock should succeed").take() {
+                return Err(error);
+            }
+
             Ok(())
         }
     }

@@ -176,19 +176,31 @@
                 ? "Checking the OS keychain for a saved Gemini API key…"
                 : "";
   $: savedRecordingShortcut = $settingsDraft.shortcut;
+  $: normalizedRecordingShortcutDraft = recordingShortcutDraft.trim();
   $: isRecordingShortcutBusy =
     recordingShortcutActionState === "loading" ||
     recordingShortcutActionState === "applying" ||
     recordingShortcutActionState === "reapplying" ||
     recordingShortcutActionState === "clearing";
+  $: activeRecordingShortcut =
+    recordingShortcutStatus?.state === "active"
+      ? (recordingShortcutStatus.activeShortcut ?? recordingShortcutStatus.requestedShortcut)
+      : null;
+  $: canSubmitRecordingShortcut =
+    !isRecordingShortcutBusy &&
+    normalizedRecordingShortcutDraft.length > 0 &&
+    (normalizedRecordingShortcutDraft !== savedRecordingShortcut ||
+      recordingShortcutStatus?.state !== "active" ||
+      (recordingShortcutStatus.activeShortcut ?? recordingShortcutStatus.requestedShortcut) !==
+        normalizedRecordingShortcutDraft);
   $: canClearRecordingShortcut =
     !isRecordingShortcutBusy &&
     (savedRecordingShortcut !== null ||
-      recordingShortcutDraft.trim().length > 0 ||
+      normalizedRecordingShortcutDraft.length > 0 ||
       (recordingShortcutStatus?.activeShortcut ?? recordingShortcutStatus?.requestedShortcut) !==
         null);
   $: recordingShortcutPrimaryActionLabel =
-    recordingShortcutActionState === "applying" ? "Saving and applying…" : "Save and apply";
+    recordingShortcutActionState === "applying" ? "Saving and activating…" : "Save and activate";
   $: recordingShortcutStatusMessage = buildRecordingShortcutStatusMessage(
     recordingShortcutActionState,
     recordingShortcutStatus,
@@ -726,6 +738,7 @@
         canRunManualTranscription={canRunManualTranscription}
         manualTranscriptionActionLabel={manualTranscriptionActionLabel}
         geminiApiKeyPresence={geminiApiKeyPresence}
+        recordingShortcut={activeRecordingShortcut}
         onBeginRecording={beginRecording}
         onDiscardRecording={discardRecording}
         onConfirmRecordingAndTranscribe={confirmRecordingAndTranscribe}
@@ -774,6 +787,7 @@
         recordingShortcutStatusMessage={recordingShortcutStatusMessage}
         isRecordingShortcutBusy={isRecordingShortcutBusy}
         recordingShortcutPrimaryActionLabel={recordingShortcutPrimaryActionLabel}
+        canSubmitRecordingShortcut={canSubmitRecordingShortcut}
         canReapplyRecordingShortcut={canReapplyRecordingShortcut}
         canClearRecordingShortcut={canClearRecordingShortcut}
         onSubmitGeminiApiKey={submitGeminiApiKey}

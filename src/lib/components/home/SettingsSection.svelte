@@ -1,5 +1,9 @@
 <script lang="ts">
   import MenuList from "$lib/components/ui/MenuList.svelte";
+  import {
+    captureShortcutFromKeyboardEvent,
+    getRecordingShortcutDisplayTokens
+  } from "$lib/features/shortcut/presenter";
   import type { RecordingInputOption, SettingsDraft } from "$lib/types/app-shell";
   import type { DraftToggleKey } from "$lib/stores/app-shell";
 
@@ -18,7 +22,8 @@
   export let canRemoveGeminiApiKey = false;
   export let recordingShortcutStatusMessage = "";
   export let isRecordingShortcutBusy = false;
-  export let recordingShortcutPrimaryActionLabel = "Save and apply";
+  export let recordingShortcutPrimaryActionLabel = "Save and activate";
+  export let canSubmitRecordingShortcut = false;
   export let canReapplyRecordingShortcut = false;
   export let canClearRecordingShortcut = false;
   export let onSubmitGeminiApiKey: () => void;
@@ -40,6 +45,48 @@
     value: option.value,
     label: option.label
   }));
+  $: recordingShortcutTokens = getRecordingShortcutDisplayTokens(recordingShortcutDraft);
+  $: recordingShortcutHelperMessage =
+    recordingShortcutCaptureFeedback !== ""
+      ? recordingShortcutCaptureFeedback
+      : isCapturingRecordingShortcut
+        ? "Press the full combination now. The same shortcut starts and stops recording."
+        : recordingShortcutTokens.length > 0
+          ? "Review the captured shortcut, then save it to start and stop recording from anywhere."
+          : "Focus this field and press the keys you want to use. Include at least one modifier or choose a function key.";
+
+  let isCapturingRecordingShortcut = false;
+  let recordingShortcutCaptureFeedback = "";
+
+  function handleRecordingShortcutFocus() {
+    isCapturingRecordingShortcut = true;
+    recordingShortcutCaptureFeedback = "";
+  }
+
+  function handleRecordingShortcutBlur() {
+    isCapturingRecordingShortcut = false;
+    recordingShortcutCaptureFeedback = "";
+  }
+
+  function handleRecordingShortcutKeydown(event: KeyboardEvent) {
+    if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const result = captureShortcutFromKeyboardEvent(event);
+
+    if (result.kind === "shortcut") {
+      recordingShortcutDraft = result.value;
+      recordingShortcutCaptureFeedback = "";
+      return;
+    }
+
+    if (result.kind === "incomplete" || result.kind === "invalid") {
+      recordingShortcutCaptureFeedback = result.message;
+    }
+  }
 </script>
 
 <div class="main-content settings-layout">
@@ -170,13 +217,64 @@
 
       <section class="settings-section">
         <h3>Recording Shortcut</h3>
-        <div class="chat-input-wrapper compact-field">
-          <input
-            type="text"
-            class="chat-input"
-            bind:value={recordingShortcutDraft}
-            placeholder="e.g. CommandOrControl+Alt+A"
-          />
+        <p class="section-description">Choose one shortcut to start and finish recording from anywhere.</p>
+        <button
+          class:shortcut-capture-active={isCapturingRecordingShortcut}
+          class="shortcut-capture"
+          type="button"
+          aria-label="Recording shortcut"
+          aria-describedby="recording-shortcut-helper recording-shortcut-status"
+          disabled={isRecordingShortcutBusy}
+          on:focus={handleRecordingShortcutFocus}
+          on:blur={handleRecordingShortcutBlur}
+          on:keydown={handleRecordingShortcutKeydown}
+        >
+          <span class="shortcut-capture-label">
+            {#if isCapturingRecordingShortcut}
+              Listening for keys…
+            {:else}
+              Press keys to start/stop recording
+            {/if}
+          </span>
+          {#if recordingShortcutTokens.length > 0}
+            <span class="shortcut-token-list" aria-hidden="true">
+              {#each recordingShortcutTokens as token}
+                <kbd class="shortcut-token">{token}</kbd>
+              {/each}
+            </span>
+          {:else}
+            <span class="shortcut-placeholder">Click here, then press a shortcut</span>
+          {/if}
+        </button>
+        <p
+          id="recording-shortcut-helper"
+          class:status-error={recordingShortcutCaptureFeedback !== ""}
+          class="status-copy muted-copy"
+        >
+          {recordingShortcutHelperMessage}
+        </p>
+        <div class="preference-row shortcut-preference-row">
+          <div>
+            <div class="preference-title">Auto-paste outside SpeakEx</div>
+            <div class="preference-description">
+              When SpeakEx is not focused, stopping a shortcut recording transcribes it, copies it
+              to the clipboard, and pastes it into the active text field. Some systems may ask for
+              accessibility/input automation permission.
+            </div>
+          </div>
+          <button
+            class:toggle-on={settingsDraft.pasteAfterShortcutRecording}
+            class="toggle"
+            type="button"
+            aria-pressed={settingsDraft.pasteAfterShortcutRecording}
+            aria-label="Toggle auto-paste outside SpeakEx"
+            on:click={() => onToggleSetting("pasteAfterShortcutRecording")}
+          >
+            <span
+              class:thumb-on={settingsDraft.pasteAfterShortcutRecording}
+              class="toggle-thumb"
+            ></span>
+          </button>
         </div>
         <div class="action-bar">
           <div class="action-group">
@@ -186,7 +284,7 @@
               on:click={onReapplyRecordingShortcut}
               disabled={!canReapplyRecordingShortcut}
             >
-              Re-apply saved shortcut
+              Apply saved shortcut
             </button>
             <button
               class="secondary-pill"
@@ -194,7 +292,7 @@
               on:click={onClearRecordingShortcut}
               disabled={!canClearRecordingShortcut}
             >
-              Clear shortcut
+              Remove shortcut
             </button>
           </div>
           <div class="action-group action-group-end">
@@ -202,13 +300,13 @@
               class="primary-pill"
               type="button"
               on:click={onSubmitRecordingShortcut}
-              disabled={isRecordingShortcutBusy || recordingShortcutDraft.trim().length === 0}
+              disabled={!canSubmitRecordingShortcut}
             >
               {recordingShortcutPrimaryActionLabel}
             </button>
           </div>
         </div>
-        <p class="status-copy muted-copy">{recordingShortcutStatusMessage}</p>
+        <p id="recording-shortcut-status" class="status-copy muted-copy">{recordingShortcutStatusMessage}</p>
       </section>
     </div>
   </div>
@@ -262,6 +360,12 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin: 0 0 1rem;
+  }
+
+  .section-description {
+    margin: 0 0 1rem;
+    color: #b7b7b7;
+    line-height: 1.5;
   }
 
   .chat-input-wrapper {
@@ -346,6 +450,10 @@
     color: #72e17b;
   }
 
+  .status-copy.status-error {
+    color: #ffb3b3;
+  }
+
   .muted-copy {
     color: #b3b3b3;
   }
@@ -370,6 +478,69 @@
 
   .action-group-end {
     margin-left: auto;
+  }
+
+  .shortcut-capture {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.85rem;
+    padding: 1rem 1.1rem;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    text-align: left;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+  }
+
+  .shortcut-capture:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .shortcut-capture:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .shortcut-capture:focus-visible,
+  .shortcut-capture.shortcut-capture-active {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+  }
+
+  .shortcut-capture-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #c7c7c7;
+  }
+
+  .shortcut-placeholder {
+    color: #f7f7f7;
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  .shortcut-token-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .shortcut-token {
+    min-width: 2.25rem;
+    padding: 0.45rem 0.7rem;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.18);
   }
 
   .secondary-pill {
@@ -404,6 +575,12 @@
     align-items: center;
     gap: 1rem;
     padding: 0.5rem 0;
+  }
+
+  .shortcut-preference-row {
+    margin-top: 0.5rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .preference-title {
@@ -452,6 +629,10 @@
 
     .action-group-end {
       margin-left: 0;
+    }
+
+    .shortcut-capture {
+      padding: 0.9rem 1rem;
     }
   }
 </style>

@@ -576,7 +576,9 @@ struct GeminiRequestContent {
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 enum GeminiRequestPart {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     FileData {
         #[serde(rename = "fileData")]
         file_data: GeminiFileData,

@@ -26,13 +26,16 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 2] = [Migration {
-    version: 1,
-    sql: include_str!("../migrations/0001_create_transcriptions.sql"),
-}, Migration {
-    version: 2,
-    sql: include_str!("../migrations/0002_create_error_logs.sql"),
-}];
+const MIGRATIONS: [Migration; 2] = [
+    Migration {
+        version: 1,
+        sql: include_str!("../migrations/0001_create_transcriptions.sql"),
+    },
+    Migration {
+        version: 2,
+        sql: include_str!("../migrations/0002_create_error_logs.sql"),
+    },
+];
 
 pub fn initialize(app: &AppHandle) -> Result<HistoryDatabase, String> {
     let path = resolve_database_path(app)?;

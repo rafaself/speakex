@@ -335,11 +335,16 @@ fn map_error_log(row: &Row<'_>) -> rusqlite::Result<ErrorLogEntry> {
 mod tests {
     use super::{HistoryRepository, NewErrorLog};
     use crate::history_database::HistoryDatabase;
-    use std::{env, fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        env, fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn saves_lists_and_clears_error_logs() {
-        let repository = HistoryRepository::new(HistoryDatabase::from_path(create_test_database_path()));
+        let repository =
+            HistoryRepository::new(HistoryDatabase::from_path(create_test_database_path()));
 
         initialize_error_logs_table(&repository);
 
@@ -359,9 +364,14 @@ mod tests {
         assert_eq!(logs[0].summary, "Transcription did not finish");
         assert_eq!(logs[0].detail, "Gemini API returned 400 Bad Request");
 
-        let result = repository.clear_error_logs().expect("error logs should clear");
+        let result = repository
+            .clear_error_logs()
+            .expect("error logs should clear");
         assert_eq!(result.deleted_count, 1);
-        assert!(repository.get_error_logs().expect("error logs should reload").is_empty());
+        assert!(repository
+            .get_error_logs()
+            .expect("error logs should reload")
+            .is_empty());
     }
 
     fn create_test_database_path() -> PathBuf {

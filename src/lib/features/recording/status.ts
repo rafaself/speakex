@@ -139,8 +139,8 @@ export function buildCompletedRecordingStatus(args: {
 export function collectOutcomeWarnings(
   result: RunCompletedRecordingTranscriptionResult
 ): string[] {
-  return [result.historyError, result.clipboardError, result.audioDeleteError].filter(
-    (value): value is string => value !== null && value.trim() !== ""
+  return [result.historyError, result.clipboardError, result.pasteError, result.audioDeleteError].filter(
+    (value): value is string => typeof value === "string" && value.trim() !== ""
   );
 }
 

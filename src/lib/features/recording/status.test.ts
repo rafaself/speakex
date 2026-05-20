@@ -82,6 +82,8 @@ describe("recording status helpers", () => {
         historyError: "History warning",
         copiedToClipboard: true,
         clipboardError: "",
+        pastedToActiveInput: false,
+        pasteError: null,
         audioDeleted: false,
         audioDeleteError: null,
         retainedAudioPath: "/tmp/audio.wav"
@@ -117,6 +119,8 @@ describe("recording status helpers", () => {
         historyError: "History warning",
         copiedToClipboard: false,
         clipboardError: "Clipboard warning",
+        pastedToActiveInput: false,
+        pasteError: null,
         audioDeleted: false,
         audioDeleteError: null,
         retainedAudioPath: "/tmp/retained.wav"
@@ -175,6 +179,8 @@ describe("recording status helpers", () => {
           historyError: null,
           copiedToClipboard: false,
           clipboardError: null,
+          pastedToActiveInput: false,
+          pasteError: null,
           audioDeleted: true,
           audioDeleteError: null,
           retainedAudioPath: null

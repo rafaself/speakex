@@ -1,4 +1,5 @@
 import type { RecordingShortcutStatus } from "$lib/native/shortcut";
+import { formatRecordingShortcutForText } from "$lib/features/shortcut/presenter";
 
 export type ShortcutActionState =
   | "idle"
@@ -24,7 +25,7 @@ export function buildRecordingShortcutStatusMessage(
   }
 
   if (actionState === "applying") {
-    return "Saving the shortcut locally and applying it now…";
+    return "Saving the shortcut locally and activating it now…";
   }
 
   if (actionState === "reapplying") {
@@ -44,17 +45,19 @@ export function buildRecordingShortcutStatusMessage(
   }
 
   if (status.state === "active") {
-    const activeShortcut = status.activeShortcut ?? status.requestedShortcut ?? "the current shortcut";
+    const activeShortcut =
+      formatRecordingShortcutForText(status.activeShortcut ?? status.requestedShortcut) ??
+      "the current shortcut";
 
     if (status.source === "default") {
-      return `No saved shortcut exists, so SpeakEx registered the default ${activeShortcut}.`;
+      return `No saved shortcut exists, so SpeakEx is using the default ${activeShortcut} to start or stop recording.`;
     }
 
     if (status.source === "saved") {
-      return `The saved recording shortcut ${activeShortcut} is active.`;
+      return `The saved shortcut ${activeShortcut} is active and will start or stop recording.`;
     }
 
-    return `The recording shortcut ${activeShortcut} is active in the current runtime.`;
+    return `The shortcut ${activeShortcut} is active in the current runtime and will start or stop recording.`;
   }
 
   if (status.state === "invalid") {
@@ -69,7 +72,8 @@ export function buildRecordingShortcutStatusMessage(
   }
 
   if (savedShortcut === null) {
-    return "No shortcut override is saved. Startup still tries the default Ctrl+Alt+A when no saved shortcut exists.";
+    const defaultShortcut = formatRecordingShortcutForText("Ctrl+Alt+A") ?? "Ctrl + Alt + A";
+    return `No shortcut override is saved. Startup still tries the default ${defaultShortcut} when no saved shortcut exists.`;
   }
 
   return "The saved recording shortcut is not active right now.";
